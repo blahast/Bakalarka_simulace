@@ -1,17 +1,18 @@
 <mujoco model="hexapod">
   <include file="scene-outrun.xml" />
 
-  <compiler  autolimits="true"/>
+  <compiler autolimits="true"/>
 
   <default>
-    <position kp="150" />
+    <position kp="150" forcerange="-4.1 4.1" />
     <joint damping="1.084" armature="0.045" frictionloss="0.03" solimplimit="0 .99 .01"/>
 
     <default class="link">
-      <geom size="2e-2" material="blue" />
+      <geom size="2e-2" material="blue" density="500" />
     </default>
+    
     <default class="servo">
-      <geom size="3e-2 3e-2" material="purple" />
+      <geom size="3e-2 3e-2" material="purple" contype="0" conaffinity="0" mass="0.082" />
     </default>
   </default>
 
@@ -27,53 +28,54 @@
     <body name="base" pos="0 0 25e-2">
       <site name="base_accel" />
       <freejoint name="root" />
-      <geom type="box" size="15e-2 10e-2 2e-2" material="green" />
-      <geom type="sphere" size="3e-2" pos="15e-2 0 2e-2" material="green" />
+      <geom type="box" size="15e-2 10e-2 2e-2" material="green" mass="1.5" />
+      <geom type="sphere" size="3e-2" pos="15e-2 0 2e-2" material="green" mass="0.0" />
 
-      <!-- legs -->
-      <replicate count="2" sep="-" euler="0 0 180">
+      <!-- Legs -->
+      <replicate count="2" sep="_" euler="0 0 180">
         <frame pos="15e-2 10e-2 0">
           <replicate count="3" sep="_" offset="-15e-2 0 0" euler="0 0 35">
             <geom type="cylinder" class="servo" />
-            <!-- coxa -->
+            
+            <!-- Coxa link -->
             <body name="coxa" euler="0 0 55">
               <joint name="coxa" type="hinge" />
               <geom type="capsule" class="link" fromto="0 0 0 7e-2 0 0" />
               <geom type="cylinder" class="servo" pos="7e-2 0 0" euler="90 0 0" />
-              <!-- femur -->
+              
+              <!-- Femur link -->
               <body name="femur" pos="7e-2 0 0" euler="90 0 0">
                 <joint name="femur" type="hinge" />
                 <geom type="capsule" class="link" fromto="0 0 0 15e-2 0 0" />
                 <geom type="cylinder" class="servo" pos="15e-2 0 0" euler="0 0 0" />
-                <!-- tibia -->
+                
+                <!-- Tibia link -->
                 <body name="tibia" pos="15e-2 0 0">
                   <joint name="tibia" type="hinge" />
                   <geom type="capsule" class="link" fromto="0 0 0 18e-2 0 0" />
                 </body>
               </body>
             </body>
+            
           </replicate>
         </frame>
       </replicate>
     </body>
   </worldbody>
+
   <actuator>
-    <position name="coxa" joint="coxa" ctrlrange="-2 2" />
-    <position name="femur" joint="femur" ctrlrange="-2 2" />
-    <position name="tibia" joint="tibia" ctrlrange="-2 2" />
+    <position name="coxa_act" joint="coxa" ctrlrange="-2 2" />
+    <position name="femur_act" joint="femur" ctrlrange="-2 2" />
+    <position name="tibia_act" joint="tibia" ctrlrange="-2 2" />
   </actuator>
+
   <sensor>
+    <accelerometer site="base_accel" />
     <jointpos joint="coxa" />
     <jointpos joint="femur" />
     <jointpos joint="tibia" />
-
     <jointvel joint="coxa" />
     <jointvel joint="femur" />
     <jointvel joint="tibia" />
-
-    <jointactuatorfrc joint="coxa" />
-    <jointactuatorfrc joint="femur" />
-    <jointactuatorfrc joint="tibia" />
-    <accelerometer site="base_accel" />
   </sensor>
 </mujoco>

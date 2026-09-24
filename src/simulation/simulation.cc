@@ -6,9 +6,15 @@ bolt::Option<std::shared_ptr<Simulation>>
 Simulation::
 make_shared(const bolt::str xml_path)
 {
+    char error[1000] = "Unknown MuJoCo error";
+    
     auto model = unique_c_ptr<mjModel>(
-        mj_loadXML(xml_path.c_str(), NULL, NULL, 0), mj_deleteModel);
-    if(!model) return bolt::None;
+        mj_loadXML(xml_path.c_str(), NULL, error, 1000), mj_deleteModel);
+        
+    if(!model) {
+        std::cerr << "MuJoCo Load Error: " << error << std::endl;
+        return bolt::None;
+    }
 
     auto data = unique_c_ptr<mjData>(
         mj_makeData(model.get()), mj_deleteData);

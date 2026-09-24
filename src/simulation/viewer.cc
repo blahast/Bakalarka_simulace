@@ -225,11 +225,12 @@ make_shared(std::shared_ptr<Simulation>& simulation)
 
 Viewer::~Viewer()
 {
-    glfwDestroyWindow(self.window);
-    glfwTerminate();
-    glfwPollEvents();
-    mjv_freeScene(&self.scene);
     mjr_freeContext(&self.context);
+    mjv_freeScene(&self.scene);
+
+    glfwDestroyWindow(self.window);
+
+    glfwTerminate();
 }
 
 void
