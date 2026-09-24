@@ -1,0 +1,38 @@
+leg_tmpl:
+  names:
+    - "coxa"
+    - "femur"
+    - "tibia"
+  transforms:
+    - [0., 0., 0.,  0., 0., 0.]
+    - [7e-2, 0., 0.,  90., 0., 0.]
+    - [15e-2, 0., 0.,  0., 0., 0.]
+    - [18e-2, 0., 0.,  0., 0., 0.]
+  nominal: [0., 0., -90]
+  ws_radius: 0.07
+  # ws_radius: 0.1
+
+gait:
+  step_height: 0.08
+  stance: 1
+  swing: 1
+
+legs:
+  - name: "0-0"
+    base: [15e-2, 10e-2, 0.,  0., 0., 55.]
+    offset: 0
+  - name: "1-0"
+    base: [0., 10e-2, 0.,  0., 0., 90.]
+    offset: 1
+  - name: "2-0"
+    base: [-15e-2, 10e-2, 0.,  0., 0., 125.]
+    offset: 0
+  - name: "0-1"
+    base: [-15e-2, -10e-2, 0.,  0., 0., 235.]
+    offset: 1
+  - name: "1-1"
+    base: [0., -10e-2, 0.,  0., 0., 270.]
+    offset: 0
+  - name: "2-1"
+    base: [15e-2, -10e-2, 0.,  0., 0., 305.]
+    offset: 1
