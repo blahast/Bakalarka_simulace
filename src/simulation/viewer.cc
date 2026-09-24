@@ -1,7 +1,7 @@
-#include "simulation/viewer.h"
-
 #include <iostream>
 #include <chrono>
+
+#include "simulation/viewer.h"
 
 static std::weak_ptr<Viewer> singleton_viewer;
 #define TRY_LOCK_self \
@@ -9,16 +9,14 @@ static std::weak_ptr<Viewer> singleton_viewer;
     if(!locked_ptr) return; \
     Viewer::Self& self = locked_ptr->self;
 
-//
 // GUI callbacks
-//
 
 void keyboard_callback(GLFWwindow* window, int key, int scancode, int act, int mods)
 {
     TRY_LOCK_self
 
-    // backspace: reset simulation
-    if (act==GLFW_PRESS && key==GLFW_KEY_BACKSPACE) {
+    // R: reset simulation
+    if (act==GLFW_PRESS && key==GLFW_KEY_R) {
         mj_resetData(
             &self.simulation->model(),
             &self.simulation->mutable_data());
@@ -27,9 +25,8 @@ void keyboard_callback(GLFWwindow* window, int key, int scancode, int act, int m
             &self.simulation->mutable_data());
     }
 
-    bool ctrl_mod = mods & GLFW_MOD_CONTROL;
-
-    if(act==GLFW_PRESS && key==GLFW_KEY_Q && ctrl_mod) {
+    // Esc: vypnuti simulace
+    if(act==GLFW_PRESS && key==GLFW_KEY_ESCAPE) {
         glfwSetWindowShouldClose(self.window, GLFW_TRUE);
     }
 }
@@ -39,10 +36,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int act, int mods)
 {
     TRY_LOCK_self
 
-    // update mouse position
+    // Update mouse position
     glfwGetCursorPos(window, &self.gui_state.mouse_pos.x, &self.gui_state.mouse_pos.y);
 
-    // update button state
+    // Update button state
     self.gui_state.mouse_left =
         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT)==GLFW_PRESS;
     self.gui_state.mouse_middle = 
@@ -54,9 +51,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int act, int mods)
     bool ctrl_mod = mods & GLFW_MOD_CONTROL;
     bool alt_mod = mods & GLFW_MOD_ALT;
 
-    // body selection
+    // Body selection
     if(act==GLFW_PRESS && button==GLFW_MOUSE_BUTTON_LEFT && ctrl_mod) {
-        // reset body selection
+        // Reset body selection
         if(mod_shift) {
             mjv_defaultPerturb(&self.perturb);
         } else {
@@ -76,12 +73,12 @@ void mouse_button_callback(GLFWwindow* window, int button, int act, int mods)
                 &self.scene, selpnt, &selgeom, &selflex, &selskin);
 
             if(body_id >= 0) {
-                // record selection
+                // Record selection
                 self.perturb.select = body_id;
                 self.perturb.flexselect = selflex;
                 self.perturb.skinselect = selskin;
 
-                // compute localpos
+                // Compute localpos
                 mjtNum tmp[3];
                 mju_sub3(tmp,
                     selpnt,
@@ -115,13 +112,13 @@ void cursor_pos_callback(GLFWwindow* window, double xpos, double ypos)
 {
     TRY_LOCK_self
 
-    // no buttons down: nothing to do
+    // No buttons down: nothing to do
     if (!self.gui_state.mouse_left
         && !self.gui_state.mouse_middle
         && !self.gui_state.mouse_right)
     { return; }
 
-    // get shift key state
+    // Get shift key state
     bool mod_shift =
         glfwGetKey(window, GLFW_KEY_LEFT_SHIFT)==GLFW_PRESS
         || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT)==GLFW_PRESS;
@@ -129,40 +126,40 @@ void cursor_pos_callback(GLFWwindow* window, double xpos, double ypos)
         glfwGetKey(window, GLFW_KEY_LEFT_CONTROL)==GLFW_PRESS
         || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL)==GLFW_PRESS;
 
-    // compute mouse displacement, save
+    // Compute mouse displacement, save
     double dx = xpos - self.gui_state.mouse_pos.x;
     double dy = ypos - self.gui_state.mouse_pos.y;
     self.gui_state.mouse_pos.x = xpos;
     self.gui_state.mouse_pos.y = ypos;
 
-    // get current window size
+    // Get current window size
     int width, height;
     glfwGetWindowSize(window, &width, &height);
 
-    // determine action based on mouse button
-    mjtMouse action;
-    if (self.gui_state.mouse_right) {
+    // Determine action based on mouse button
+    mjtMouse action = mjMOUSE_NONE;
+    if (self.gui_state.mouse_middle) {
         action = mod_shift ? mjMOUSE_MOVE_H : mjMOUSE_MOVE_V;
-    } else if (self.gui_state.mouse_left) {
+    } else if (self.gui_state.mouse_right) {
         action = mod_shift ? mjMOUSE_ROTATE_H : mjMOUSE_ROTATE_V;
-    } else {
-        action = mjMOUSE_ZOOM;
     }
 
-    if (mod_ctrl || self.gui_state.perturb) {
-        // move perturb
-        mjv_movePerturb(
-            &self.simulation->model(),
-            &self.simulation->mutable_data(),
-            action, dx/width, dy/height,
-            &self.scene, &self.perturb);
+    if (action != mjMOUSE_NONE) {
+        if (mod_ctrl || self.gui_state.perturb) {
+            // Move perturb
+            mjv_movePerturb(
+                &self.simulation->model(),
+                &self.simulation->mutable_data(),
+                action, dx/width, dy/height,
+                &self.scene, &self.perturb);
 
-    } else {
-        // move camera
-        mjv_moveCamera(
-            &self.simulation->model(),
-            action, dx/height, dy/height,
-            &self.scene, &self.camera);
+        } else {
+            // Move camera
+            mjv_moveCamera(
+                &self.simulation->model(),
+                action, dx/height, dy/height,
+                &self.scene, &self.camera);
+        }
     }
 }
 
@@ -170,14 +167,14 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
     TRY_LOCK_self
 
-    // emulate vertical mouse motion = 5% of window height
+    // Emulate vertical mouse motion = 5% of window height (obraceny smer zoomu)
     mjv_moveCamera(
         &self.simulation->model(),
-        mjMOUSE_ZOOM, 0, -0.05*yoffset,
+        mjMOUSE_ZOOM, 0, 0.05*yoffset,
         &self.scene, &self.camera);
 }
 
-/* static */
+/* Static */
 bolt::Option<std::shared_ptr<Viewer>> 
 Viewer::
 make_shared(std::shared_ptr<Simulation>& simulation)
@@ -187,7 +184,7 @@ make_shared(std::shared_ptr<Simulation>& simulation)
     auto& model = simulation->model();
     auto& data = simulation->mutable_data();
 
-    // init GLFW, create window, make OpenGL context current, request v-sync
+    // Init GLFW, create window, make OpenGL context current, request v-sync
     if(glfwInit() != GLFW_TRUE) return bolt::None;
     auto window = glfwCreateWindow(1200, 900, simulation->model().names, NULL, NULL);
     if(!window) return bolt::None;
@@ -202,7 +199,7 @@ make_shared(std::shared_ptr<Simulation>& simulation)
     singleton_viewer = viewer;
     auto& self = viewer->self;
 
-    // initialize visualization data structures
+    // Initialize visualization data structures
     mjv_defaultCamera(&self.camera);
     mjv_defaultOption(&self.option);
     mjv_defaultScene(&self.scene);
@@ -213,7 +210,7 @@ make_shared(std::shared_ptr<Simulation>& simulation)
     mjr_makeContext(
         &simulation->model(), &self.context, mjFONTSCALE_100);
 
-    // register callbacks
+    // Register callbacks
     glfwSetKeyCallback(self.window, keyboard_callback);
     glfwSetMouseButtonCallback(self.window, mouse_button_callback);
     glfwSetCursorPosCallback(self.window, cursor_pos_callback);
@@ -259,10 +256,7 @@ update()
     mju_zero(
         self.simulation->mutable_data().xfrc_applied,
         6*self.simulation->model().nbody);
-    // mjv_applyPerturbPose(
-    //     &self.simulation->model(), 
-    //     &self.simulation->mutable_data(),
-    //     &self.perturb, 0);  // mocap bodies only
+
     mjv_applyPerturbForce(
         &self.simulation->model(), 
         &self.simulation->mutable_data(),

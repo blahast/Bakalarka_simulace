@@ -7,11 +7,9 @@ if(DEFINED ENV{CONDA_PREFIX})
     link_directories(AFTER $ENV{CONDA_PREFIX}/lib)
 endif()
 
-# DEPENDENCIES
-# =============================================================================
 include(FetchContent)
 
-# MuJoCo si GLFW stáhne samo, pokud je potřeba
+# Download MuJoCo
 FetchContent_Declare(
     mujoco
     GIT_REPOSITORY https://github.com/google-deepmind/mujoco.git
@@ -26,13 +24,5 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(bolt)
 
-# Změněno na HTTPS připojení
-FetchContent_Declare(
-    tgc
-    GIT_REPOSITORY https://gitlab.fel.cvut.cz/crl-codebase/tgc-twist-gait-controller.git
-    GIT_TAG        main
-)
-FetchContent_MakeAvailable(tgc)
-# =============================================================================
 
 add_subdirectory(src)
