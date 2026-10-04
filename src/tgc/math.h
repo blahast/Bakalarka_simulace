@@ -21,7 +21,7 @@ constexpr double kInfty = std::numeric_limits<double>::infinity();
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
 /**
- * @brief Computes the value of $arccos(b - (ax)^2)$; is more stable for small $x$.
+ * @brief Computes the value of $arccos(b - ax^2)$; is more stable for small $x$.
  */
 inline double acos_abxx(double b, double a, double x) {
     return 2 * asin(sqrt(

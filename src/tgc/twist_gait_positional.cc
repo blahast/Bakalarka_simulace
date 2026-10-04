@@ -66,11 +66,8 @@ T getOr(bolt::Option<T> opt, T alt) {
 }
 
 /* static */
-bolt::Option<TwistGait_Positional>
-TwistGait_Positional::
-make(const YAML::Node& yml_data)
+bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& yml_data)
 {
-
     try {
         if(!yml_data.IsDefined()) return bolt::None;
 
@@ -90,9 +87,8 @@ make(const YAML::Node& yml_data)
         if(!leg_tmpl_yml["ws_radius"].IsDefined()) return bolt::None;
         double wsr = leg_tmpl_yml["ws_radius"].as<double>();
 
-        // Nominal leg q
-        bolt::Vec<> nominal_leg_q =
-            M_PI/180 * VectorFromYAML(leg_tmpl_yml["nominal"]).get();
+        // Nominal angles (rad)
+        bolt::Vec<> nominal_leg_q = M_PI/180 * VectorFromYAML(leg_tmpl_yml["nominal"]).get();
 
         double t_stance = yml_data["gait"]["stance"].as<double>();
         double t_swing = yml_data["gait"]["swing"].as<double>();
@@ -105,6 +101,8 @@ make(const YAML::Node& yml_data)
         auto legs_yml = yml_data["legs"];
 
         if(!legs_yml.IsSequence()) return bolt::None;
+
+        // Parse leg base transforms, names, and gait offsets
         for(auto leg : legs_yml) {
             bolt::SE3<> leg_base_T = TranformFromXYZRPY(leg["base"]).get();
             leg_Tb.emplace_back(leg_base_T);
@@ -119,9 +117,9 @@ make(const YAML::Node& yml_data)
         }
 
         // Gait correlations
-        bolt::Mat<> C = GaitCorrelations(
-            t_stance, t_swing, EigenFromStd(leg_gait_offset));
+        bolt::Mat<> C = GaitCorrelations(t_stance, t_swing, EigenFromStd(leg_gait_offset));
 
+        // Compute nominal leg tip positions (robot base frame)
         std::vector<bolt::SE3<>> T0;
         for(int i = 0; i < leg_Tb.size(); ++i) {
             T0.emplace_back(
@@ -129,19 +127,23 @@ make(const YAML::Node& yml_data)
             );
         }
 
-        TwistGait gait = TwistGait::make(
-            StrideCos(),
-            LiftSin(),
+        // Create gait controller
+        TwistGait gait = bolt::expect(
+            TwistGait::make(
+                StrideCos(),
+                LiftSin(),
 
-            // GainSin(),
-            GainCos(),
+                // GainSin(),
+                GainCos(),
 
-            C,
-            1.,
-            step_h,
-            wsr,
-            T0
-        ).expect("Failed to init gait.");
+                C,
+                1.,
+                step_h,
+                wsr,
+                T0
+            ), 
+            "Failed to init gait."
+        );
 
         return bolt::Some(TwistGait_Positional(
             leg_model,
@@ -163,16 +165,13 @@ make(const YAML::Node& yml_data)
     }
 }
 
-void
-TwistGait_Positional::
-reset()
+void TwistGait_Positional::reset()
 {
     _.gait.reset();
     _.q = nominal_q();
 }
 
-void TwistGait_Positional::
-printLegs() const
+void TwistGait_Positional::printLegs() const
 {
     for(auto ln : _.leg_names) {
         std::cout << ln << std::endl;
@@ -182,9 +181,7 @@ printLegs() const
     }
 }
 
-std::vector<std::string>
-TwistGait_Positional::
-jointNames() const
+std::vector<std::string> TwistGait_Positional::jointNames() const
 {
     std::vector<std::string> names;
     for(auto ln : _.leg_names) {
@@ -195,9 +192,7 @@ jointNames() const
     return names;
 }
 
-bolt::Vec<>
-TwistGait_Positional::
-nominal_q() const
+bolt::Vec<> TwistGait_Positional::nominal_q() const
 {
     bolt::Vec<> q(nDof());
     for(int i = 0; i < q.size(); i+=_.leg_model.nDof()) {
@@ -206,43 +201,89 @@ nominal_q() const
     return q;
 }
 
-bolt::Vec<>
-TwistGait_Positional::
-next_q(
+bolt::Vec<> TwistGait_Positional::next_q(
     bolt::VecCRef<6> V,
-    bolt::VecCRef<>  /*q*/,
-    double           /*t*/,
+    bolt::VecCRef<>  q,
+    bolt::VecCRef<>  tau,
+    double           t,
     double           dt)
 {
-    bolt::expect(
-        bolt::Linear(V).z() == 0.
-        && bolt::Angular(V).x() == 0.
-        && bolt::Angular(V).y() == 0.,
-        "Command velocity shoul be planar.");
+    bolt::expect(bolt::Linear(V).z() == 0. && bolt::Angular(V).x() == 0. && bolt::Angular(V).y() == 0., "Command velocity shoul be planar.");
 
+    // Create references to each leg's joint angles
     std::vector<bolt::MatRef<>> ql;
     for(int i = 0; i < nLegs(); ++i) {
         ql.emplace_back(_.q.segment(i * _.leg_model.nDof(), _.leg_model.nDof()));
     }
 
+    int i = 0;
     for(auto[Tt, qli, Tb] : bolt::Zip(_.gait.T_tip(), ql, _.leg_Tb)) {
-        qli = _.leg_model.IK((Tb.inverse()*Tt).translation(), qli)
-            .expect("IK failure.");
-    }
-    _.gait.step(V, dt);
+        auto tau_i = tau.segment(i * _.leg_model.nDof(), _.leg_model.nDof());
+        
+        // Apply admittance control to adjust the target tip transform based on external torques
+        bolt::SE3<> T_adj = apply_admittance(Tt, tau_i, Tb, dt, i);
 
+        qli = bolt::expect(_.leg_model.IK((Tb.inverse() * T_adj).translation(), qli), "IK failure.");
+        i++;
+    }
+
+    _.gait.step(V, dt);
 
     return _.q;
 }
 
-//
-// Helper functions -----------------------------------------------------------
-//
+bolt::SE3<> TwistGait_Positional::apply_admittance(
+    const bolt::SE3<>& T_target,    // Target tip transform in robot base frame
+    bolt::VecCRef<> tau_ext_leg,    // External torques for the leg's joints
+    const bolt::SE3<>& Tb,          // Leg base transform (from robot base to leg base)
+    double dt,                      // Time step for the control loop
+    int i                           // Index of the leg being processed
+) const                    
+{
+    // Apply deadband to compensate for friction loss
+    bolt::Vec<> tau_active = tau_ext_leg.unaryExpr([](double tau) {
+        const double friction_loss = 0.03;
+        if (tau > friction_loss) return tau - friction_loss;
+        if (tau < -friction_loss) return tau + friction_loss;
+        return 0.0;
+    });
 
-bolt::Mat<> GaitCorrelations(
-    double t_stance,
-    double t_swing,
-    bolt::VecCRef<> leg_gait_offset)
+    // Get the current joint angles for the leg
+    int dof_per_leg = _.leg_model.nDof();
+    bolt::Vec<> q_leg = _.q.segment(i * dof_per_leg, dof_per_leg);
+
+    // Compute forward kinematics and base Jacobian in the leg's local coordinate frame
+    bolt::SE3<double> T = _.leg_model.FK(q_leg);
+    bolt::Mat<6, -1, double> jac = _.leg_model.J(q_leg);
+
+    // Extract only the linear part of the Jacobian and shift to the end-effector
+    bolt::Mat<3, -1, double> jac_linear = jac.bottomRows<3>() + jac.topRows<3>().colwise().cross(T.translation());
+
+    // Calculate tip force from torques using robust solver to prevent instability near singularities
+    bolt::Vec<3> tip_force_local = jac_linear.transpose().completeOrthogonalDecomposition().solve(tau_active);
+
+    // Transform the computed local force into the robot's base coordinate frame
+    bolt::Vec<3> tip_force_base = Tb.rotation() * tip_force_local;
+
+    // Print tip force for debugging
+    if (i == 0) {
+        std::cout << "Leg " << i << " tip force (base frame): "<< tip_force_base.transpose() << std::endl;
+    }
+
+    const double admittance_gain = 0.0005; 
+    
+    // Calculate the translation adjustment in the base coordinate frame
+    bolt::Vec<3> delta_pos = tip_force_base * admittance_gain;
+
+    bolt::SE3<> T_adj = T_target;
+    T_adj.translation() += delta_pos;
+
+    return T_adj;
+}
+
+// Helper functions -----------------------------------------------------------
+
+bolt::Mat<> GaitCorrelations(double t_stance, double t_swing, bolt::VecCRef<> leg_gait_offset)
 {
     int n = leg_gait_offset.size();
 
@@ -251,9 +292,7 @@ bolt::Mat<> GaitCorrelations(
         for(int j = 0; j <= i; ++j) {
             double offset = std::abs(leg_gait_offset[i] - leg_gait_offset[j]);
             if(offset >= t_swing) offset = std::abs(offset - t_stance - t_swing);
-            C(i,j) = C(j,i) = offset < t_swing
-                ? 1 - 2*offset/t_swing
-                : -1;
+            C(i,j) = C(j,i) = offset < t_swing ? 1 - 2*offset/t_swing : -1;
         }
     }
 

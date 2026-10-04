@@ -30,23 +30,23 @@ namespace tgc {
  */
 class TwistGait_Positional {
     struct {
-        bolt::KinematicChain          leg_model;
-        std::vector<bolt::SE3Store<>> leg_Tb;
-        std::vector<std::string>      leg_names;
-        bolt::VecStore<>              nominal_leg_q;
-        std::vector<std::string>      leg_joint_names;
-        double                        ws_r;
+        bolt::KinematicChain          leg_model;        // Leg kinematic chain model
+        std::vector<bolt::SE3Store<>> leg_Tb;           // Leg base transforms (from body to leg base)
+        std::vector<std::string>      leg_names;        // Leg names
+        bolt::VecStore<>              nominal_leg_q;    // Nominal leg joint positions
+        std::vector<std::string>      leg_joint_names;  // Leg joint names
+        double                        ws_r;             // Workspace radius
 
-        double                        step_h;
-        double                        t_stance;
-        double                        t_swing;
-        bolt::VecStore<>              leg_gait_offset;
-        bolt::MatStore<>              G;    // Gait correlations
+        double                        step_h;           // Step height
+        double                        t_stance;         // Stance time
+        double                        t_swing;          // Swing time
+        bolt::VecStore<>              leg_gait_offset;  // Leg gait offsets (phase offsets for each leg)
+        bolt::MatStore<>              G;                // Gait correlations
 
-        TwistGait gait;
+        TwistGait gait;                                 // Twist gait controller (generates leg tip positions)
 
         // State --------------------------------------------------------------
-        bolt::VecStore<>                  q;
+        bolt::VecStore<>              q;                // Current joint angles
     } _;
 
     template<typename... Args>
@@ -54,30 +54,41 @@ class TwistGait_Positional {
         reset();
     }
 public:
+    // Creates a TwistGait_Positional instance from YAML configuration data
     static bolt::Option<TwistGait_Positional> make(const YAML::Node& yml_data);
-    void printLegs() const;
-    std::vector<std::string> jointNames() const;
 
-    inline int nLegs() const { return _.leg_Tb.size(); }
-    inline int nDof() const { return nLegs() * _.leg_model.nDof(); }
+    void printLegs() const;                         // Prints leg and joint names
+    std::vector<std::string> jointNames() const;    // Returns leg and joint names
 
-    void reset();
+    inline int nLegs() const { return _.leg_Tb.size(); }                // Returns number of legs
+    inline int nDof() const { return nLegs() * _.leg_model.nDof(); }    // Returns number of degrees of freedom (joints)
 
-    bolt::Vec<> nominal_q() const;
+    void reset();   // Resets the gait controller and joint angles to their initial state
+
+    bolt::Vec<> nominal_q() const; // Returns the nominal joint angles for all legs in a single vector
+
+    // Returns the next joint angles for all legs
     bolt::Vec<> next_q(
         bolt::VecCRef<6> V,
         bolt::VecCRef<>  q,
+        bolt::VecCRef<>  tau,  // New: Added tau for admittance control
         double           t,
         double           dt);
 
+    // Returns current gait correlations matrix
     inline const bolt::MatStore<>& gait_correlations() const {
         return _.G;
     }
 
+    // Sets new gait correlations matrix
     inline void unsafe_set_gait_correlations(bolt::MatCRef<> new_G) {
         _.G = new_G;
         _.gait.unsafe_set_gait_correlations(new_G);
     }
+
+private:
+    // Applies admittance control to the target transform based on joint torques
+    bolt::SE3<> apply_admittance(const bolt::SE3<>& T_target, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb, double dt, int i) const;
 };
 
 } // namespace tgc

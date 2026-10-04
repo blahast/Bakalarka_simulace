@@ -34,6 +34,7 @@ public:
     bolt::Vec<> joint_vel() const;
     bolt::Vec<> joint_acc() const;
     bolt::Vec<> joint_eff() const;
+    bolt::Vec<> joint_ext_eff() const;
 
     void cmd_pos(Eigen::Ref<const bolt::Vec<>> q) const;
 

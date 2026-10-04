@@ -3,10 +3,12 @@
 import random
 import os
 
-grid_size = 10
+grid_size = 30
 box_half_size = 0.1
-grid_elements = ""
+min_box_height = 0.01
+max_box_height = 0.05
 
+grid_elements = ""
 offset = (grid_size - 1) * box_half_size
 
 for i in range(grid_size):
@@ -14,10 +16,8 @@ for i in range(grid_size):
         is_light = (i + j) % 2 == 0
         material = "mat_light" if is_light else "mat_dark"
         
-        # Generate a lower random height for the boxes
-        hz = round(random.uniform(0.01, 0.07), 3)
+        hz = round(random.uniform(min_box_height, max_box_height), 3)
         
-        # Apply offset to center the grid
         pos_x = i * (box_half_size * 2) - offset
         pos_y = j * (box_half_size * 2) - offset
         
@@ -39,7 +39,7 @@ xml_content = f"""<mujoco model="generated_scene">
 </mujoco>
 """
 
-output_path = "mujoco/scene-outrun.xml"
+output_path = "mujoco/scene-outrun_rough.xml"
 
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 

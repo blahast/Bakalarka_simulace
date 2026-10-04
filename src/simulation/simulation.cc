@@ -20,6 +20,13 @@ make_shared(const bolt::str xml_path)
         mj_makeData(model.get()), mj_deleteData);
     if(!data) return bolt::None;
 
+    for(int i = 0; i < model->nu; ++i) {
+        int jnt_id = model->actuator_trnid[2 * i];
+        data->ctrl[i] = data->qpos[model->jnt_qposadr[jnt_id]];
+    }
+
+    mj_forward(model.get(), data.get());
+
     return bolt::Some(std::shared_ptr<Simulation>(new Simulation(Self{
         .mj_model = move(model),
         .mj_data = move(data)
@@ -32,7 +39,6 @@ step()
 {
     mj_step(self.mj_model.get(), self.mj_data.get());
 }
-
 
 std::vector<bolt::str>
 Simulation::
@@ -74,7 +80,8 @@ joint_vel() const
     bolt::Vec<> vel(model.nu);
 
     for(int i = 0; i < model.nu; ++i) {
-       vel(i) = data.qvel[model.jnt_qposadr[model.actuator_trnid[2*i]]];
+       // Use jnt_dofadr for velocity indexing
+       vel(i) = data.qvel[model.jnt_dofadr[model.actuator_trnid[2*i]]];
     }
 
     return vel;
@@ -89,7 +96,8 @@ joint_acc() const
     bolt::Vec<> acc(model.nu);
 
     for(int i = 0; i < model.nu; ++i) {
-       acc(i) = data.qacc[model.jnt_qposadr[model.actuator_trnid[2*i]]];
+       // Use jnt_dofadr for acceleration indexing
+       acc(i) = data.qacc[model.jnt_dofadr[model.actuator_trnid[2*i]]];
     }
 
     return acc;
@@ -110,12 +118,29 @@ joint_eff() const
     return effort;
 }
 
+// Returns torques from external forces (and joint frictionloss) (N*m)
+bolt::Vec<> Simulation::joint_ext_eff() const
+{
+    auto& model = *self.mj_model;
+    auto& data = *self.mj_data;
+    bolt::Vec<> ext_effort(model.nu);
+
+    for(int i = 0; i < model.nu; ++i) {
+        // Get the degree of freedom address for the current actuator
+        int dof_adr = model.jnt_dofadr[model.actuator_trnid[2*i]];
+        
+        // Read the constraint force directly from MuJoCo data
+        ext_effort(i) = data.qfrc_constraint[dof_adr];
+    }
+
+    return ext_effort;
+}
 
 void
 Simulation::
 cmd_pos(Eigen::Ref<const bolt::Vec<>> q) const
 {
-    if(q.size() != self.mj_model->nu) bolt::panic("Control dimmensions missmatch.");
+    if(q.size() != self.mj_model->nu) bolt::panic("Control dimensions mismatch.");
 
     for(int i = 0; i < q.size(); ++i) {
         self.mj_data->ctrl[i] = q(i);
