@@ -12,9 +12,15 @@ leg_tmpl:
   ws_radius: 0.7
 
 gait:
-  step_height: 0.08
+  step_height: 0.12
   stance: 5
   swing: 1
+
+admittance:
+  enable: true
+  stiffness: 200.0
+  damping_ratio: 1.0
+  mass: 5.0
 
 legs:
   - name: "0-0"

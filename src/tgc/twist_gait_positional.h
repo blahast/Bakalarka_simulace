@@ -43,10 +43,18 @@ class TwistGait_Positional {
         bolt::VecStore<>              leg_gait_offset;  // Leg gait offsets (phase offsets for each leg)
         bolt::MatStore<>              G;                // Gait correlations
 
+        // Admittance parameters
+        bool                          adm_enable;       // Enable flag for admittance control
+        double                        adm_stiffness;    // Admittance stiffness (K)
+        double                        adm_damping;      // Admittance damping (B), calculated from ratio
+        double                        adm_mass;         // Admittance mass (M)
+
         TwistGait gait;                                 // Twist gait controller (generates leg tip positions)
 
         // State --------------------------------------------------------------
         bolt::VecStore<>              q;                // Current joint angles
+        std::vector<double>           adm_pos_z;        // Admittance position state in Z axis
+        std::vector<double>           adm_vel_z;        // Admittance velocity state in Z axis
     } _;
 
     template<typename... Args>
@@ -88,7 +96,7 @@ public:
 
 private:
     // Applies admittance control to the target transform based on joint torques
-    bolt::SE3<> apply_admittance(const bolt::SE3<>& T_target, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb, double dt, int i) const;
+    bolt::SE3<> apply_admittance(const bolt::SE3<>& T_target, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb, double dt, int i);
 };
 
 } // namespace tgc

@@ -116,6 +116,29 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
             leg_joint_names.push_back(jn.as<std::string>());
         }
 
+        bool adm_enable = false;
+        double adm_stiffness = 0.0;
+        double adm_damping = 0.0;
+        double adm_mass = 0.0;
+
+        auto admittance_yml = yml_data["admittance"];
+        if(admittance_yml.IsDefined()) {
+            // Check if admittance is enabled
+            adm_enable = admittance_yml["enable"].IsDefined() ? admittance_yml["enable"].as<bool>() : false;
+            
+            if(adm_enable) {
+                if(!admittance_yml["stiffness"].IsDefined() || !admittance_yml["damping_ratio"].IsDefined() || !admittance_yml["mass"].IsDefined()) {
+                    return bolt::None;
+                }
+                adm_stiffness = admittance_yml["stiffness"].as<double>();
+                double damping_ratio = admittance_yml["damping_ratio"].as<double>();
+                adm_mass = admittance_yml["mass"].as<double>();
+                
+                // Calculate absolute damping coefficient B
+                adm_damping = damping_ratio * 2.0 * std::sqrt(adm_stiffness * adm_mass);
+            }
+        }
+
         // Gait correlations
         bolt::Mat<> C = GaitCorrelations(t_stance, t_swing, EigenFromStd(leg_gait_offset));
 
@@ -157,6 +180,10 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
             t_swing,
             EigenFromStd(leg_gait_offset).matrix(),
             C,
+            adm_enable,
+            adm_stiffness,
+            adm_damping,
+            adm_mass,
             gait
         ));
     } catch(YAML::Exception e) {
@@ -169,6 +196,10 @@ void TwistGait_Positional::reset()
 {
     _.gait.reset();
     _.q = nominal_q();
+
+    // Initialize admittance states to zero
+    _.adm_pos_z.assign(nLegs(), 0.0);
+    _.adm_vel_z.assign(nLegs(), 0.0);
 }
 
 void TwistGait_Positional::printLegs() const
@@ -221,7 +252,10 @@ bolt::Vec<> TwistGait_Positional::next_q(
         auto tau_i = tau.segment(i * _.leg_model.nDof(), _.leg_model.nDof());
         
         // Apply admittance control to adjust the target tip transform based on external torques
-        bolt::SE3<> T_adj = apply_admittance(Tt, tau_i, Tb, dt, i);
+        bolt::SE3<> T_adj = Tt;
+        if (_.adm_enable) {
+            T_adj = apply_admittance(Tt, tau_i, Tb, dt, i);
+        }
 
         qli = bolt::expect(_.leg_model.IK((Tb.inverse() * T_adj).translation(), qli), "IK failure.");
         i++;
@@ -238,7 +272,7 @@ bolt::SE3<> TwistGait_Positional::apply_admittance(
     const bolt::SE3<>& Tb,          // Leg base transform (from robot base to leg base)
     double dt,                      // Time step for the control loop
     int i                           // Index of the leg being processed
-) const                    
+)                    
 {
     // Apply deadband to compensate for friction loss
     bolt::Vec<> tau_active = tau_ext_leg.unaryExpr([](double tau) {
@@ -266,17 +300,23 @@ bolt::SE3<> TwistGait_Positional::apply_admittance(
     bolt::Vec<3> tip_force_base = Tb.rotation() * tip_force_local;
 
     // Print tip force for debugging
+    /*
     if (i == 0) {
         std::cout << "Leg " << i << " tip force (base frame): "<< tip_force_base.transpose() << std::endl;
     }
+    */
 
-    const double admittance_gain = 0.0005; 
-    
-    // Calculate the translation adjustment in the base coordinate frame
-    bolt::Vec<3> delta_pos = tip_force_base * admittance_gain;
+    // Calculate Z-axis acceleration: a = (F - B*v - K*x) / M
+    double f_z = tip_force_base.z();
+    double a_z = (f_z - _.adm_damping * _.adm_vel_z[i] - _.adm_stiffness * _.adm_pos_z[i]) / _.adm_mass;
 
+    // Integrate acceleration to get velocity and position (Semi-implicit Euler)
+    _.adm_vel_z[i] += a_z * dt;
+    _.adm_pos_z[i] += _.adm_vel_z[i] * dt;
+
+    // Apply the calculated admittance displacement to the target transform
     bolt::SE3<> T_adj = T_target;
-    T_adj.translation() += delta_pos;
+    T_adj.translation().z() += _.adm_pos_z[i];
 
     return T_adj;
 }
