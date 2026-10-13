@@ -2,6 +2,12 @@
 #include <iomanip>
 #include <utility>
 
+// For plotjuggler
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
 #include "bolt/base/option.h"
 #include "bolt/base/panic.h"
 #include "bolt/base/expect.h"
@@ -71,6 +77,13 @@ int main(int argc, const char *argv[])
     
     double t_prev = 0.0; // Previous simulation time for reset detection
 
+    // Initilize UDP socket for PlotJuggler
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in plotjuggler_addr;
+    plotjuggler_addr.sin_family = AF_INET;
+    plotjuggler_addr.sin_port = htons(9870);
+    plotjuggler_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
     // Run simulation loop
     while(!viewer->window_should_close()) {
         mjtNum render_start = simulation->sim_time();
@@ -113,12 +126,29 @@ int main(int argc, const char *argv[])
             // Measure gait controller step duration
             //auto gait_controller_start = std::chrono::high_resolution_clock::now();
 
-            //--------------------------------------------------------------------------
             // Get joint torques
             bolt::Vec<> tau_ext = simulation->joint_ext_eff();
             // Compute next joint positions using gait controller
             bolt::Vec<> next_q = gait.next_q(V_cmd, q, tau_ext, t, rtf * kControlRate);
-            //--------------------------------------------------------------------------
+            
+            // Create JSON string for tip forces
+            std::string json = "{";
+            json += "\"time\": " + std::to_string(t);
+            for(int i = 0; i < gait.nLegs(); ++i) {
+                const auto& f = gait.tipForces()[i];
+                const auto& exp_f = gait.expTipForces()[i];
+                std::string prefix = ", \"L" + std::to_string(i) + "_";
+                json += prefix + "X\": " + std::to_string(f.x());
+                json += prefix + "Y\": " + std::to_string(f.y());
+                json += prefix + "Z\": " + std::to_string(f.z());
+                json += prefix + "exp_Z\": " + std::to_string(exp_f);
+            }
+            json += "}";
+            json += "\n";
+
+            // Send tip forces to PlotJuggler via UDP
+            sendto(sock, json.c_str(), json.length(), 0, (struct sockaddr *)&plotjuggler_addr, sizeof(plotjuggler_addr));
+            
 
             /*
             auto gait_controller_duration = std::chrono::high_resolution_clock::now() - gait_controller_start;

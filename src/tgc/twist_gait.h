@@ -83,6 +83,21 @@ public:
         _self.duty_factor = (n - row_sum)/(n + row_sum);
         _self.C = new_G;
     }
+
+    // Force a leg to be in the stance phase
+    inline void force_stance(size_t leg_idx) {
+        _self.phi[leg_idx] = bolt::None;
+    }
+
+    // Get the phase of a leg (None if in stance, Some(phase) if in swing)
+    inline bolt::Option<double> phase(size_t leg_idx) const {
+        return _self.phi[leg_idx];
+    }
+
+    // Returns true if the leg at the given index is in the stance phase.
+    inline bool is_stance(size_t leg_idx) const {
+        return !_self.phi[leg_idx].is_some();
+    }
 };
 
 } // namespace tgc

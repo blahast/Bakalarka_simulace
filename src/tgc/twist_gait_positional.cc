@@ -116,27 +116,39 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
             leg_joint_names.push_back(jn.as<std::string>());
         }
 
+        // Parse admittance parameters
         bool adm_enable = false;
+        bool adm_robot_weight_compensation = false;
+
+        double adm_force_touchdown_threshold = 0.0;
+        double adm_robot_mass = 0.0;
+
         double adm_stiffness = 0.0;
         double adm_damping = 0.0;
         double adm_mass = 0.0;
+        double damping_ratio = 0.0;
+
+        double expected_force_multiplier = 1.0;
+        double expected_force_tc = 0.0;
+        double adm_ramp_up_time = 0.0;
 
         auto admittance_yml = yml_data["admittance"];
         if(admittance_yml.IsDefined()) {
-            // Check if admittance is enabled
             adm_enable = admittance_yml["enable"].IsDefined() ? admittance_yml["enable"].as<bool>() : false;
+            adm_robot_weight_compensation = admittance_yml["robot_weight_compensation"].IsDefined() ? admittance_yml["robot_weight_compensation"].as<bool>() : false;
             
-            if(adm_enable) {
-                if(!admittance_yml["stiffness"].IsDefined() || !admittance_yml["damping_ratio"].IsDefined() || !admittance_yml["mass"].IsDefined()) {
-                    return bolt::None;
-                }
-                adm_stiffness = admittance_yml["stiffness"].as<double>();
-                double damping_ratio = admittance_yml["damping_ratio"].as<double>();
-                adm_mass = admittance_yml["mass"].as<double>();
-                
-                // Calculate absolute damping coefficient B
-                adm_damping = damping_ratio * 2.0 * std::sqrt(adm_stiffness * adm_mass);
-            }
+            adm_force_touchdown_threshold = admittance_yml["force_touchdown_threshold"].IsDefined() ? admittance_yml["force_touchdown_threshold"].as<double>() : 0.0;
+            adm_robot_mass = admittance_yml["robot_mass"].IsDefined() ? admittance_yml["robot_mass"].as<double>() : 0.0;
+
+            adm_stiffness =  admittance_yml["virtual_stiffness"].IsDefined() ? admittance_yml["virtual_stiffness"].as<double>() : 0.0;
+            damping_ratio = admittance_yml["virtual_damping_ratio"].IsDefined() ? admittance_yml["virtual_damping_ratio"].as<double>() : 0.0;
+            adm_mass = admittance_yml["virtual_mass"].IsDefined() ? admittance_yml["virtual_mass"].as<double>() : 0.0;
+
+            expected_force_multiplier = admittance_yml["expected_force_multiplier"].IsDefined() ? admittance_yml["expected_force_multiplier"].as<double>() : 1.0;
+            adm_ramp_up_time = admittance_yml["ramp_up_time"].IsDefined() ? admittance_yml["ramp_up_time"].as<double>() : 0.0;
+
+            // Calculate absolute damping
+            adm_damping = damping_ratio * 2.0 * std::sqrt(adm_stiffness * adm_mass);
         }
 
         // Gait correlations
@@ -181,9 +193,14 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
             EigenFromStd(leg_gait_offset).matrix(),
             C,
             adm_enable,
+            adm_robot_weight_compensation,
+            adm_force_touchdown_threshold,
+            adm_robot_mass,
             adm_stiffness,
             adm_damping,
             adm_mass,
+            expected_force_multiplier,
+            adm_ramp_up_time,
             gait
         ));
     } catch(YAML::Exception e) {
@@ -200,6 +217,13 @@ void TwistGait_Positional::reset()
     // Initialize admittance states to zero
     _.adm_pos_z.assign(nLegs(), 0.0);
     _.adm_vel_z.assign(nLegs(), 0.0);
+
+    // Initialize tip forces to zero
+    _.tip_forces.assign(nLegs(), bolt::Vec<3>::Zero());
+
+    // Initialize expected forces to zero
+    _.expected_fz.assign(nLegs(), 0.0);
+    _.force_ramp_time.assign(nLegs(), 0.0);
 }
 
 void TwistGait_Positional::printLegs() const
@@ -239,9 +263,90 @@ bolt::Vec<> TwistGait_Positional::next_q(
     double           t,
     double           dt)
 {
-    bolt::expect(bolt::Linear(V).z() == 0. && bolt::Angular(V).x() == 0. && bolt::Angular(V).y() == 0., "Command velocity shoul be planar.");
+    bolt::expect(bolt::Linear(V).z() == 0. && bolt::Angular(V).x() == 0. && bolt::Angular(V).y() == 0., "Command velocity should be planar.");
 
-    // Create references to each leg's joint angles
+    // Robot weight
+    const double F_g = _.adm_robot_mass * 9.81; 
+
+    std::vector<bolt::Vec<3>> measured_forces(nLegs());
+    std::vector<bool> in_contact(nLegs(), false);
+    int num_contact = 0;
+
+    // Measure forces and detect ground contact for all legs
+    for(int i = 0; i < nLegs(); ++i) {
+        auto tau_i = tau.segment(i * _.leg_model.nDof(), _.leg_model.nDof());
+        measured_forces[i] = compute_measured_force(i, tau_i, _.leg_Tb[i]);
+        _.tip_forces[i] = measured_forces[i]; // Store for logging
+        
+        // Check actual physical ground contact using the force threshold
+        bool actual_contact = measured_forces[i].z() > _.adm_force_touchdown_threshold;
+
+        // Check if leg is bearing weight
+        // measured_forces[i].z() > _.adm_force_touchdown_threshold
+        // _.gait.is_stance(i)
+        if (_.gait.is_stance(i)) {
+            in_contact[i] = true;
+            num_contact++;
+
+            // Handle expected force ramp up time 
+            if (actual_contact) {
+                _.force_ramp_time[i] = _.adm_ramp_up_time; // Snap to max
+            } else {
+                _.force_ramp_time[i] = std::min(_.force_ramp_time[i] + dt, _.adm_ramp_up_time);
+            }
+            
+        } else {
+            // Reset ramp timer when leg is in swing phase
+            _.force_ramp_time[i] = 0.0;
+        }
+    }
+
+    std::vector<double> raw_expected_fz(nLegs(), 0.0);
+
+    // Compute static weight distribution
+    if (num_contact >= 3) {
+        // Dynamic matrix A (3 rows, num_contact columns)
+        bolt::Mat<-1, -1, double> A(3, num_contact);
+        bolt::Vec<3> B;
+        B << F_g, 0, 0;
+
+        int col = 0;
+        for(int i = 0; i < nLegs(); ++i) {
+            if (in_contact[i]) {
+                bolt::Vec<3> pos = _.gait.T_tip()[i].translation(); // Leg tip position in base frame
+                A(0, col) = 1.0;
+                A(1, col) = pos.y();
+                A(2, col) = pos.x();
+                col++;
+            }
+        }
+
+        // Solve A * F_expected = B using complete orthogonal decomposition (N >= 3)
+        bolt::Vec<-1> F_exp = A.completeOrthogonalDecomposition().solve(B);
+
+        // Map the results back to the respective legs
+        col = 0;
+        for(int i = 0; i < nLegs(); ++i) {
+            if (in_contact[i]) {
+                raw_expected_fz[i] = F_exp(col);
+                col++;
+            }
+        }
+    } else {
+        // Fallback if less than 3 legs have ground contact (e.g., falling or sliding)
+        double uniform_weight = (num_contact > 0) ? (F_g / num_contact) : 0.0;
+        for(int i = 0; i < nLegs(); ++i) {
+            if (in_contact[i]) raw_expected_fz[i] = uniform_weight;
+        }
+    }
+
+    // Apply expected force with ramp-up coefficient
+    for(int i = 0; i < nLegs(); ++i) {
+        double coef = (_.adm_ramp_up_time > 0.0) ? (_.force_ramp_time[i] / _.adm_ramp_up_time) : 1.0;
+        _.expected_fz[i] = _.expected_force_multiplier * raw_expected_fz[i] * coef;
+    }
+
+    // Apply admittance control with compensated static force
     std::vector<bolt::MatRef<>> ql;
     for(int i = 0; i < nLegs(); ++i) {
         ql.emplace_back(_.q.segment(i * _.leg_model.nDof(), _.leg_model.nDof()));
@@ -249,66 +354,30 @@ bolt::Vec<> TwistGait_Positional::next_q(
 
     int i = 0;
     for(auto[Tt, qli, Tb] : bolt::Zip(_.gait.T_tip(), ql, _.leg_Tb)) {
-        auto tau_i = tau.segment(i * _.leg_model.nDof(), _.leg_model.nDof());
         
-        // Apply admittance control to adjust the target tip transform based on external torques
-        bolt::SE3<> T_adj = Tt;
-        if (_.adm_enable) {
-            T_adj = apply_admittance(Tt, tau_i, Tb, dt, i);
-        }
+        // Use the expected force here
+        bolt::SE3<> T_adj = apply_admittance(Tt, measured_forces[i].z(), _.expected_fz[i], dt, i);
 
         qli = bolt::expect(_.leg_model.IK((Tb.inverse() * T_adj).translation(), qli), "IK failure.");
         i++;
     }
 
     _.gait.step(V, dt);
-
     return _.q;
 }
 
 bolt::SE3<> TwistGait_Positional::apply_admittance(
-    const bolt::SE3<>& T_target,    // Target tip transform in robot base frame
-    bolt::VecCRef<> tau_ext_leg,    // External torques for the leg's joints
-    const bolt::SE3<>& Tb,          // Leg base transform (from robot base to leg base)
-    double dt,                      // Time step for the control loop
-    int i                           // Index of the leg being processed
-)                    
+    const bolt::SE3<>& T_target, 
+    double measured_fz, 
+    double expected_fz, 
+    double dt, 
+    int i)                    
 {
-    // Apply deadband to compensate for friction loss
-    bolt::Vec<> tau_active = tau_ext_leg.unaryExpr([](double tau) {
-        const double friction_loss = 0.03;
-        if (tau > friction_loss) return tau - friction_loss;
-        if (tau < -friction_loss) return tau + friction_loss;
-        return 0.0;
-    });
+    // Compute dynamic force
+    double delta_f_z = _.adm_robot_weight_compensation ? measured_fz - expected_fz : measured_fz;
 
-    // Get the current joint angles for the leg
-    int dof_per_leg = _.leg_model.nDof();
-    bolt::Vec<> q_leg = _.q.segment(i * dof_per_leg, dof_per_leg);
-
-    // Compute forward kinematics and base Jacobian in the leg's local coordinate frame
-    bolt::SE3<double> T = _.leg_model.FK(q_leg);
-    bolt::Mat<6, -1, double> jac = _.leg_model.J(q_leg);
-
-    // Extract only the linear part of the Jacobian and shift to the end-effector
-    bolt::Mat<3, -1, double> jac_linear = jac.bottomRows<3>() + jac.topRows<3>().colwise().cross(T.translation());
-
-    // Calculate tip force from torques using robust solver to prevent instability near singularities
-    bolt::Vec<3> tip_force_local = jac_linear.transpose().completeOrthogonalDecomposition().solve(tau_active);
-
-    // Transform the computed local force into the robot's base coordinate frame
-    bolt::Vec<3> tip_force_base = Tb.rotation() * tip_force_local;
-
-    // Print tip force for debugging
-    /*
-    if (i == 0) {
-        std::cout << "Leg " << i << " tip force (base frame): "<< tip_force_base.transpose() << std::endl;
-    }
-    */
-
-    // Calculate Z-axis acceleration: a = (F - B*v - K*x) / M
-    double f_z = tip_force_base.z();
-    double a_z = (f_z - _.adm_damping * _.adm_vel_z[i] - _.adm_stiffness * _.adm_pos_z[i]) / _.adm_mass;
+    // Calculate Z-axis acceleration
+    double a_z = (delta_f_z - _.adm_damping * _.adm_vel_z[i] - _.adm_stiffness * _.adm_pos_z[i]) / _.adm_mass;
 
     // Integrate acceleration to get velocity and position (Semi-implicit Euler)
     _.adm_vel_z[i] += a_z * dt;
@@ -316,12 +385,39 @@ bolt::SE3<> TwistGait_Positional::apply_admittance(
 
     // Apply the calculated admittance displacement to the target transform
     bolt::SE3<> T_adj = T_target;
-    T_adj.translation().z() += _.adm_pos_z[i];
+    if (_.adm_enable) {
+        T_adj.translation().z() += _.adm_pos_z[i];
+    } else {
+        T_adj.translation().z() = T_target.translation().z();
+    }
 
     return T_adj;
 }
 
 // Helper functions -----------------------------------------------------------
+
+// Helper function to calculate force from joint torques
+bolt::Vec<3> TwistGait_Positional::compute_measured_force(int i, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb) {
+    // Deadband to compensate for friction loss
+    bolt::Vec<> tau_active = tau_ext_leg.unaryExpr([](double tau) {
+        const double friction_loss = 0.03;
+        if (tau > friction_loss) return tau - friction_loss;
+        if (tau < -friction_loss) return tau + friction_loss;
+        return 0.0;
+    });
+
+    int dof_per_leg = _.leg_model.nDof();
+    bolt::Vec<> q_leg = _.q.segment(i * dof_per_leg, dof_per_leg);
+
+    // Compute the Jacobian and the tip transform
+    bolt::SE3<double> T = _.leg_model.FK(q_leg);
+    bolt::Mat<6, -1, double> jac = _.leg_model.J(q_leg);
+    bolt::Mat<3, -1, double> jac_linear = jac.bottomRows<3>() + jac.topRows<3>().colwise().cross(T.translation());
+
+    // Compute the tip force in the base frame
+    bolt::Vec<3> tip_force_local = jac_linear.transpose().completeOrthogonalDecomposition().solve(tau_active);
+    return Tb.rotation() * tip_force_local;
+}
 
 bolt::Mat<> GaitCorrelations(double t_stance, double t_swing, bolt::VecCRef<> leg_gait_offset)
 {

@@ -1,5 +1,5 @@
 <mujoco model="hexapod">
-  <include file="scene-outrun_rough.xml" />
+  <include file="scene-outrun_flat.xml" />
 
   <compiler autolimits="true"/>
 
@@ -27,7 +27,7 @@
   </asset>
 
 <worldbody>
-    <body name="base" pos="0 0 35e-2">
+    <body name="base" pos="0 0 31e-2">
       <site name="base_accel" />
       <freejoint name="root" />
       <geom type="box" size="15e-2 10e-2 2e-2" material="green" mass="1.5" />

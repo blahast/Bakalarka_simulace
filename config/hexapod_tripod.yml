@@ -8,19 +8,26 @@ leg_tmpl:
     - [7e-2, 0., 0.,  90., 0., 0.]
     - [15e-2, 0., 0.,  0., 0., 0.]
     - [18e-2, 0., 0.,  0., 0., 0.]
-  nominal: [0., 0., -90]
+  nominal: [0., 0., -90.0]
   ws_radius: 0.7
 
 gait:
-  step_height: 0.12
+  step_height: 0.10
   stance: 1
   swing: 1
 
 admittance:
   enable: true
-  stiffness: 700.0
-  damping_ratio: 0.8
-  mass: 5.0
+  virtual_stiffness: 200.0
+  virtual_damping_ratio: 1.0
+  virtual_mass: 3
+
+  robot_weight_compensation: true
+  robot_mass: 4.786
+  ramp_up_time: 0.7
+  expected_force_multiplier: 0.95
+
+  force_touchdown_threshold: 5.0
 
 legs:
   - name: "0-0"

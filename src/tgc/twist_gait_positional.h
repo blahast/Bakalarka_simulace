@@ -45,9 +45,14 @@ class TwistGait_Positional {
 
         // Admittance parameters
         bool                          adm_enable;       // Enable flag for admittance control
+        bool                          adm_robot_weight_compensation; // Enable flag for robot weight compensation
+        double                        adm_force_touchdown_threshold; // Force threshold for touchdown detection
+        double                        adm_robot_mass;   // Robot mass for weight compensation
         double                        adm_stiffness;    // Admittance stiffness (K)
         double                        adm_damping;      // Admittance damping (B), calculated from ratio
         double                        adm_mass;         // Admittance mass (M)
+        double                        expected_force_multiplier; // Multiplier for expected force in admittance control
+        double                        adm_ramp_up_time; // Ramp up time for expected force
 
         TwistGait gait;                                 // Twist gait controller (generates leg tip positions)
 
@@ -55,6 +60,9 @@ class TwistGait_Positional {
         bolt::VecStore<>              q;                // Current joint angles
         std::vector<double>           adm_pos_z;        // Admittance position state in Z axis
         std::vector<double>           adm_vel_z;        // Admittance velocity state in Z axis
+        std::vector<bolt::Vec<3>>     tip_forces;       // Tip forces in base frame for all legs
+        std::vector<double>           expected_fz;      // Expected Z forces for all legs
+        std::vector<double>           force_ramp_time;  // Timer for expected force ramp-up
     } _;
 
     template<typename... Args>
@@ -74,6 +82,16 @@ public:
     void reset();   // Resets the gait controller and joint angles to their initial state
 
     bolt::Vec<> nominal_q() const; // Returns the nominal joint angles for all legs in a single vector
+
+    // Returns the tip forces in base frame for all legs
+    inline const std::vector<bolt::Vec<3>>& tipForces() const {
+        return _.tip_forces;
+    }
+
+    // Returns the expected tip forces in base frame for all legs
+    inline const std::vector<double>& expTipForces() const {
+        return _.expected_fz;
+    }
 
     // Returns the next joint angles for all legs
     bolt::Vec<> next_q(
@@ -96,7 +114,10 @@ public:
 
 private:
     // Applies admittance control to the target transform based on joint torques
-    bolt::SE3<> apply_admittance(const bolt::SE3<>& T_target, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb, double dt, int i);
+    bolt::SE3<> apply_admittance(const bolt::SE3<>& T_target, double measured_fz, double expected_fz, double dt, int i);
+    
+    // Computes the measured force at the tip of leg
+    bolt::Vec<3> compute_measured_force(int i, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb);
 };
 
 } // namespace tgc
