@@ -30,41 +30,57 @@ namespace tgc {
  */
 class TwistGait_Positional {
     struct {
+
+        // Leg kinematics and configuration
         bolt::KinematicChain          leg_model;        // Leg kinematic chain model
-        std::vector<bolt::SE3Store<>> leg_Tb;           // Leg base transforms (from body to leg base)
         std::vector<std::string>      leg_names;        // Leg names
-        bolt::VecStore<>              nominal_leg_q;    // Nominal leg joint positions
         std::vector<std::string>      leg_joint_names;  // Leg joint names
+        std::vector<bolt::SE3Store<>> leg_Tb;           // Leg base transforms (from body to leg base)
+        bolt::VecStore<>              nominal_leg_q;    // Nominal leg joint positions
         double                        ws_r;             // Workspace radius
 
+        // Gait parameters and controller
         double                        step_h;           // Step height
         double                        t_stance;         // Stance time
         double                        t_swing;          // Swing time
         bolt::VecStore<>              leg_gait_offset;  // Leg gait offsets (phase offsets for each leg)
         bolt::MatStore<>              G;                // Gait correlations
+        TwistGait                     gait;             // Twist gait controller (generates leg tip positions)
 
-        // Admittance parameters
-        bool                          adm_enable;       // Enable flag for admittance control
-        bool                          adm_robot_weight_compensation; // Enable flag for robot weight compensation
-        double                        adm_force_touchdown_threshold; // Force threshold for touchdown detection
-        double                        adm_robot_mass;   // Robot mass for weight compensation
-        double                        adm_stiffness;    // Admittance stiffness (K)
-        double                        adm_damping;      // Admittance damping (B), calculated from ratio
-        double                        adm_mass;         // Admittance mass (M)
-        double                        expected_force_multiplier; // Multiplier for expected force in admittance control
-        double                        adm_ramp_up_time; // Ramp up time for expected force
 
-        TwistGait gait;                                 // Twist gait controller (generates leg tip positions)
+        // --- Admittance parameters ---
 
-        // State --------------------------------------------------------------
+        // General admittance
+        bool                          adm_enable;                       // Enable flag for admittance control
+        double                        adm_stiffness;                    // Admittance stiffness (K)
+        double                        adm_damping;                      // Admittance damping (B), calculated from ratio
+        double                        adm_mass;                         // Admittance mass (M)
+
+        // Weight compensation
+        bool                          adm_robot_weight_compensation;    // Enable flag for robot weight compensation
+        double                        adm_robot_mass;                   // Robot mass for weight compensation
+        double                        expected_force_multiplier;        // Multiplier for expected force in admittance control
+
+        // Ground search
+        bool                          search_for_ground;                // Enable searching for ground contact
+        double                        adm_force_touchdown_threshold;    // Force threshold for touchdown detection
+        double                        adm_pre_contact_force_limit;      // Max force subtracted while searching for ground
+        double                        adm_pre_contact_force_rate;       // Rate of force increase while searching for ground
+
+
+        // --- State Variables (Runtime) ---
+        
+        // General
         bolt::VecStore<>              q;                // Current joint angles
-        std::vector<double>           adm_pos_z;        // Admittance position state in Z axis
-        std::vector<double>           adm_vel_z;        // Admittance velocity state in Z axis
         std::vector<bolt::Vec<3>>     tip_forces;       // Tip forces in base frame for all legs
         std::vector<double>           expected_fz;      // Expected Z forces for all legs
-        std::vector<double>           force_ramp_time;  // Timer for expected force ramp-up
+        
+        // Admittance and contact
+        std::vector<double>           adm_pos_z;        // Admittance position state in Z axis
+        std::vector<double>           adm_vel_z;        // Admittance velocity state in Z axis
+        std::vector<bool>             is_in_contact;    // True if leg made physical contact during stance
+        std::vector<double>           force_ramp_time;  // Timer for ground search force ramp-up
     } _;
-
     template<typename... Args>
     explicit TwistGait_Positional(Args&&... args) : _{std::move<Args>(args)...} {
         reset();
@@ -114,7 +130,7 @@ public:
 
 private:
     // Applies admittance control to the target transform based on joint torques
-    bolt::SE3<> apply_admittance(const bolt::SE3<>& T_target, double measured_fz, double expected_fz, double dt, int i);
+    bolt::SE3<> apply_admittance(const bolt::SE3<>& T_target, bolt::VecCRef<3> measured_force, double expected_fz, double dt, int i);
     
     // Computes the measured force at the tip of leg
     bolt::Vec<3> compute_measured_force(int i, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb);

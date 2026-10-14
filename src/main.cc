@@ -84,7 +84,7 @@ int main(int argc, const char *argv[])
     plotjuggler_addr.sin_port = htons(9870);
     plotjuggler_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    // Run simulation loop
+    // Simulation loop
     while(!viewer->window_should_close()) {
         mjtNum render_start = simulation->sim_time();
 
@@ -92,7 +92,7 @@ int main(int argc, const char *argv[])
             
             mjtNum control_start = simulation->sim_time();
             
-            // Detect reset if current time is smaller than previous time
+            // Detect reset
             if (simulation->sim_time() < t_prev) {
                 gait.reset();
             }
@@ -102,7 +102,7 @@ int main(int argc, const char *argv[])
             }
 
             double t = simulation->mutable_data().time;
-            t_prev = t; // Update previous time for the next iteration
+            t_prev = t;
             
             bolt::Vec<> q = simulation->joint_pos();
 
@@ -128,7 +128,8 @@ int main(int argc, const char *argv[])
 
             // Get joint torques
             bolt::Vec<> tau_ext = simulation->joint_ext_eff();
-            // Compute next joint positions using gait controller
+
+            // Compute next joint positions
             bolt::Vec<> next_q = gait.next_q(V_cmd, q, tau_ext, t, rtf * kControlRate);
             
             // Create JSON string for tip forces
@@ -159,7 +160,7 @@ int main(int argc, const char *argv[])
             simulation->cmd_pos(next_q);
         }
 
-        // Update viewer once enough time has been simulated
+        // Update viewer
         viewer->update();
     }
 }

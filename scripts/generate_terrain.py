@@ -45,4 +45,3 @@ os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
 with open(output_path, "w") as f:
     f.write(xml_content)
-print(f"Terrain generated in {output_path}")

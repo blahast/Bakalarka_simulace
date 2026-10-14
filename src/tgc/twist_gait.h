@@ -43,6 +43,8 @@ class TwistGait {
         std::vector<bolt::Vec<6>>         V_tip;
         std::vector<bolt::Option<double>> phi;
 
+        bool search_for_ground;
+
         // bool is_V_updated = false;
     } _self;
 
@@ -64,13 +66,14 @@ public:
         double tau_swing,
         double h_swing,
         double r_ws,
-        const std::vector<bolt::SE3<>>& T0
+        const std::vector<bolt::SE3<>>& T0,
+        bool search_for_ground
     );
 
     inline size_t nLegs() const { return _self.T0.size(); }
 
     void reset();
-    void step(bolt::VecCRef<6> V, double delta);
+    void step(bolt::VecCRef<6> V, double delta, const std::vector<bool>& is_in_contact);
 
     inline const std::vector<bolt::SE3<>> T_tip() const {
         return _self.T_tip;

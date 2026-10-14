@@ -24,10 +24,12 @@ admittance:
 
   robot_weight_compensation: true
   robot_mass: 4.786
-  ramp_up_time: 0.7
   expected_force_multiplier: 0.95
 
+  search_for_ground: true
   force_touchdown_threshold: 5.0
+  pre_contact_force_limit: 30.0
+  pre_contact_force_rate: 100.0
 
 legs:
   - name: "0-0"

@@ -1,5 +1,5 @@
 <mujoco model="hexapod">
-  <include file="scene-outrun_flat.xml" />
+  <include file="scene-outrun_rough.xml" />
 
   <compiler autolimits="true"/>
 
