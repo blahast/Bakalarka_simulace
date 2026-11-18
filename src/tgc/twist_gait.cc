@@ -63,7 +63,7 @@ make(
     double h_swing,
     double r_ws,
     const std::vector<bolt::SE3<>>& T0,
-    bool search_for_ground
+    bool use_admittance
 ) {
     double row_sum = C.row(0).sum();
 
@@ -91,11 +91,11 @@ make(
         h_swing,
         r_ws,
         _T0,
+        use_admittance,
         duty_factor,
         _T_tip,
         V_tip,
-        phi,
-        search_for_ground
+        phi
     ));
 }
 
@@ -146,10 +146,14 @@ step(bolt::VecCRef<6> V, double delta, const std::vector<bool>& is_in_contact)
             if(_self.phi[j].is_some()
                 && _self.phi[j].get() <= (1. - _self.C(i,j))/2.
             ) {
-                can_swing= false;
+                can_swing = false;
             }
 
-            if(_self.search_for_ground && !_self.phi[j].is_some() && _self.C(i,j) < 0.0 && !is_in_contact[j]) {
+            if(_self.use_admittance && _self.phi[j].is_some() && _self.C(i,j) == 1) {
+                can_swing = false;
+            }
+
+            if(_self.use_admittance && !_self.phi[j].is_some() && _self.C(i,j) < 0.0 && !is_in_contact[j]) {
                 can_swing = false;
             }
 
@@ -157,9 +161,7 @@ step(bolt::VecCRef<6> V, double delta, const std::vector<bool>& is_in_contact)
         theta_remain = std::min(theta_remain, tau_max(i) - tau(i));
         can_swing = can_swing && (!V.isZero(0) || !tau.isZero(5e-2)); //TODO: Make into param.
 
-        if (_self.search_for_ground) {
-            can_swing = can_swing && (tau(i) > 0.0);
-        }
+        can_swing = can_swing && (tau(i) > 0.0);
 
         if(can_swing && tau_max(i) - tau(i) < theta_remain_candidate) {
             theta_remain_candidate = tau_max(i) - tau(i);

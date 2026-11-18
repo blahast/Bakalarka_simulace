@@ -12,6 +12,9 @@
 #include "bolt/base/panic.h"
 #include "bolt/base/iterator.h"
 
+#include <proxsuite/proxqp/dense/dense.hpp>
+#include <algorithm>
+
 #include <cmath>
 #include <iostream>
 #include <tuple>
@@ -120,40 +123,56 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
 
         // General admittance
         bool adm_enable = false;
-        double adm_stiffness = 0.0;
-        double damping_ratio = 0.0;
-        double adm_mass = 0.0;
-        double adm_damping = 0.0;
+
+        double stance_adm_stiffness = 300.0;
+        double stance_damping_ratio = 1.0;
+        double stance_adm_mass = 3.0;
+        double stance_adm_damping = 0.0;
+
+        double swing_adm_stiffness = 300.0;
+        double swing_damping_ratio = 1.0;
+        double swing_adm_mass = 3.0;
+        double swing_adm_damping = 0.0;
+
+        // Measured force low pass
+        double force_ema = 1.0;
 
         // Weight compensation
         bool adm_robot_weight_compensation = false;
         double adm_robot_mass = 0.0;
         double expected_force_multiplier = 1.0;
+        double alpha = 1e-4;
+        double beta = 1.0;
+        double weight_ramp_time = 0.0;
 
         // Ground search
-        bool search_for_ground = false;
         double adm_force_touchdown_threshold = 0.0;
-        double adm_pre_contact_force_limit = 0.0;
-        double adm_pre_contact_force_rate = 0.0;
 
         auto admittance_yml = yml_data["admittance"];
         if(admittance_yml.IsDefined()) {
 
             adm_enable = admittance_yml["enable"].IsDefined() ? admittance_yml["enable"].as<bool>() : adm_enable;
-            adm_stiffness =  admittance_yml["virtual_stiffness"].IsDefined() ? admittance_yml["virtual_stiffness"].as<double>() : adm_stiffness;
-            damping_ratio = admittance_yml["virtual_damping_ratio"].IsDefined() ? admittance_yml["virtual_damping_ratio"].as<double>() : damping_ratio;
-            adm_mass = admittance_yml["virtual_mass"].IsDefined() ? admittance_yml["virtual_mass"].as<double>() : adm_mass;
-            
-            adm_damping = damping_ratio * 2.0 * std::sqrt(adm_stiffness * adm_mass);
+
+            stance_adm_stiffness =  admittance_yml["stance_virtual_stiffness"].IsDefined() ? admittance_yml["stance_virtual_stiffness"].as<double>() : stance_adm_stiffness;
+            stance_damping_ratio = admittance_yml["stance_virtual_damping_ratio"].IsDefined() ? admittance_yml["stance_virtual_damping_ratio"].as<double>() : stance_damping_ratio;
+            stance_adm_mass = admittance_yml["stance_virtual_mass"].IsDefined() ? admittance_yml["stance_virtual_mass"].as<double>() : stance_adm_mass;
+            stance_adm_damping = stance_damping_ratio * 2.0 * std::sqrt(stance_adm_stiffness * stance_adm_mass);
+
+            swing_adm_stiffness =  admittance_yml["swing_virtual_stiffness"].IsDefined() ? admittance_yml["swing_virtual_stiffness"].as<double>() : swing_adm_stiffness;
+            swing_damping_ratio = admittance_yml["swing_virtual_damping_ratio"].IsDefined() ? admittance_yml["swing_virtual_damping_ratio"].as<double>() : swing_damping_ratio;
+            swing_adm_mass = admittance_yml["swing_virtual_mass"].IsDefined() ? admittance_yml["swing_virtual_mass"].as<double>() : swing_adm_mass;
+            swing_adm_damping = swing_damping_ratio * 2.0 * std::sqrt(swing_adm_stiffness * swing_adm_mass);
+
+            force_ema = admittance_yml["force_ema"].IsDefined() ? admittance_yml["force_ema"].as<double>() : force_ema;
 
             adm_robot_weight_compensation = admittance_yml["robot_weight_compensation"].IsDefined() ? admittance_yml["robot_weight_compensation"].as<bool>() : adm_robot_weight_compensation;
             adm_robot_mass = admittance_yml["robot_mass"].IsDefined() ? admittance_yml["robot_mass"].as<double>() : adm_robot_mass;
             expected_force_multiplier = admittance_yml["expected_force_multiplier"].IsDefined() ? admittance_yml["expected_force_multiplier"].as<double>() : expected_force_multiplier;
+            alpha = admittance_yml["alpha"].IsDefined() ? admittance_yml["alpha"].as<double>() : alpha;
+            beta = admittance_yml["beta"].IsDefined() ? admittance_yml["beta"].as<double>() : beta;
+            weight_ramp_time = admittance_yml["weight_ramp_time"].IsDefined() ? admittance_yml["weight_ramp_time"].as<double>() : weight_ramp_time;
 
-            search_for_ground = admittance_yml["search_for_ground"].IsDefined() ? admittance_yml["search_for_ground"].as<bool>() : search_for_ground;
             adm_force_touchdown_threshold = admittance_yml["force_touchdown_threshold"].IsDefined() ? admittance_yml["force_touchdown_threshold"].as<double>() : adm_force_touchdown_threshold;
-            adm_pre_contact_force_limit = admittance_yml["pre_contact_force_limit"].IsDefined() ? admittance_yml["pre_contact_force_limit"].as<double>() : adm_pre_contact_force_limit;
-            adm_pre_contact_force_rate = admittance_yml["pre_contact_force_rate"].IsDefined() ? admittance_yml["pre_contact_force_rate"].as<double>() : adm_pre_contact_force_rate;
         }
 
         // Gait correlations
@@ -181,7 +200,7 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
                 step_h,
                 wsr,
                 T0,
-                search_for_ground
+                adm_enable
             ), 
             "Failed to init gait."
         );
@@ -200,16 +219,20 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
             C,
             gait,
             adm_enable,
-            adm_stiffness,
-            adm_damping,
-            adm_mass,
+            stance_adm_stiffness,
+            stance_adm_damping,
+            stance_adm_mass,
+            swing_adm_stiffness,
+            swing_adm_damping,
+            swing_adm_mass,
+            force_ema,
             adm_robot_weight_compensation,
             adm_robot_mass,
             expected_force_multiplier,
-            search_for_ground,
-            adm_force_touchdown_threshold,
-            adm_pre_contact_force_limit,
-            adm_pre_contact_force_rate
+            alpha,
+            beta,
+            weight_ramp_time,
+            adm_force_touchdown_threshold
         ));
     } catch(YAML::Exception e) {
         std::cerr << e.what() << std::endl;
@@ -231,10 +254,16 @@ void TwistGait_Positional::reset()
 
     // Initialize expected forces to zero
     _.expected_fz.assign(nLegs(), 0.0);
-    _.force_ramp_time.assign(nLegs(), 0.0);
     
     // Initialize contact state vector
     _.is_in_contact.assign(nLegs(), false);
+
+    // Initialize QP solver
+    _.qp.reset();
+
+    // Initialize force vectors
+    _.f_max.assign(nLegs(), 0.0);
+    _.f_qp.assign(nLegs(), 0.0);
 }
 
 void TwistGait_Positional::printLegs() const
@@ -280,101 +309,89 @@ bolt::Vec<> TwistGait_Positional::next_q(
     const double F_g = _.adm_robot_mass * 9.81; 
 
     std::vector<bolt::Vec<3>> measured_forces(nLegs());
-    int num_contact = 0; // Number of legs on the ground
 
     // Measure forces and manage contact state for all legs
     for(int i = 0; i < nLegs(); ++i) {
         auto tau_i = tau.segment(i * _.leg_model.nDof(), _.leg_model.nDof());
-        measured_forces[i] = compute_measured_force(i, tau_i, _.leg_Tb[i]);
-        _.tip_forces[i] = measured_forces[i]; // Store for logging
+        
+        bolt::Vec<3> raw_force = compute_measured_force(i, tau_i, _.leg_Tb[i], q);
+        measured_forces[i] = raw_force;
+        
+        // Asymetrický filtr pro osu Z
+        const double alpha_rise = _.force_ema;
+        const double alpha_fall = 1.0;
+        
+        if (raw_force.z() > _.tip_forces[i].z()) {
+            measured_forces[i].z() = alpha_rise * raw_force.z() + (1.0 - alpha_rise) * _.tip_forces[i].z();
+        } else {
+            measured_forces[i].z() = alpha_fall * raw_force.z() + (1.0 - alpha_fall) * _.tip_forces[i].z();
+        }
+        
+        _.tip_forces[i] = measured_forces[i];
 
         if (_.gait.is_stance(i)) {
-            // Check if this is the first contact during this stance phase
-            if (!_.is_in_contact[i]) {
-                if (measured_forces[i].z() > _.adm_force_touchdown_threshold) {
-                    _.is_in_contact[i] = true;
-                } else {
-                    // Still searching for ground -> accumulate ramp time
-                    _.force_ramp_time[i] += dt;
-                }
-            }
-
-            // Count legs on the ground for weight distribution
-            if (_.is_in_contact[i]) {
-                num_contact++;
+            // First stance contact
+            if (!_.is_in_contact[i] && measured_forces[i].z() > _.adm_force_touchdown_threshold) {
+                _.is_in_contact[i] = true;
             }
         } else {
-            // Reset contact state and timers
+            // Swing
             _.is_in_contact[i] = false;
-            _.force_ramp_time[i] = 0.0;
+
+            // auto phase_opt = _.gait.phase(i);
+            // if (!phase_opt.is_none() && phase_opt.get() < 0.5) {
+            //     // Decay admittance states when in swing
+            //     _.adm_pos_z[i] *= 0.95;
+            //     _.adm_vel_z[i] *= 0.95;
+            // }
         }
     }
 
-    std::vector<double> raw_expected_fz(nLegs(), 0.0);
+    const double f_cap = 0.5 * F_g;
+    const double rate  = (_.weight_ramp_time > 0.0) ? f_cap / _.weight_ramp_time : 1e9;
 
-    // Compute static weight distribution for legs in contact
-    if (num_contact >= 3) {
-        // Matrix A (3 x num_contact)
-        bolt::Mat<-1, -1, double> A(3, num_contact);
-        bolt::Vec<3> B;
-        B << F_g, 0, 0;
-
-        int col = 0;
-        for(int i = 0; i < nLegs(); ++i) {
-            if (_.is_in_contact[i]) { // Use strictly is_in_contact
-                bolt::Vec<3> pos = _.gait.T_tip()[i].translation(); // Leg tip position in base frame
-                A(0, col) = 1.0;
-                A(1, col) = pos.y();
-                A(2, col) = pos.x();
-                col++;
-            }
-        }
-
-        // Solve A * F_expected = B using complete orthogonal decomposition
-        bolt::Vec<-1> F_exp = A.completeOrthogonalDecomposition().solve(B);
-
-        // Map the results back to the legs
-        col = 0;
-        for(int i = 0; i < nLegs(); ++i) {
-            if (_.is_in_contact[i]) {
-                raw_expected_fz[i] = F_exp(col);
-                col++;
-            }
-        }
-    } else {
-        // If less than 3 legs have ground contact then F = F_g/N
-        double uniform_weight = (num_contact > 0) ? (F_g / num_contact) : 0.0;
-        for(int i = 0; i < nLegs(); ++i) {
-            if (_.is_in_contact[i]) raw_expected_fz[i] = uniform_weight;
-        }
-    }
-
-    // Apply expected force based on contact state
     for(int i = 0; i < nLegs(); ++i) {
-        if (!_.gait.is_stance(i)) {
-            _.expected_fz[i] = 0.0;
-        } else if (!_.is_in_contact[i] && _.search_for_ground) {
-            // Leg in stance but searching for ground -> linear ramp up to limit
-            double ramped_force = _.adm_pre_contact_force_rate * _.force_ramp_time[i];
-            _.expected_fz[i] = std::min(ramped_force, _.adm_pre_contact_force_limit);
+        const double target = _.gait.is_stance(i) ? f_cap : 0.0;
+
+        // Ramp f_max towards target
+        if (target < _.f_max[i]) {
+            _.f_max[i] = std::min(_.f_max[i], _.f_qp[i]);
+            _.f_max[i] = std::max(target, _.f_max[i] - rate * dt);
         } else {
-            // Leg in stance and in contact -> subtract expected weight
-            _.expected_fz[i] = _.expected_force_multiplier * raw_expected_fz[i];
+            _.f_max[i] = std::min(target, _.f_max[i] + rate * dt);
         }
     }
 
-    // Apply admittance control with compensated static force
+    // Weight distribution using QP solver
+    bool any_cap = std::any_of(_.f_max.begin(), _.f_max.end(), [](double f){ return f > 0.0; });
+    _.f_qp.assign(nLegs(), 0.0);
+    if (any_cap) {
+        _.f_qp = distribute_weight(_.f_max, F_g);
+    }
+
+    // Expected forces for based on stance and weight distribution
+    for(int i = 0; i < nLegs(); ++i) {
+        _.expected_fz[i] = _.expected_force_multiplier * _.f_qp[i];
+    }
+
+    // Split q into segments
     std::vector<bolt::MatRef<>> ql;
     for(int i = 0; i < nLegs(); ++i) {
         ql.emplace_back(_.q.segment(i * _.leg_model.nDof(), _.leg_model.nDof()));
     }
 
+    // Apply admittance control with compensated static force
     int i = 0;
     for(auto[Tt, qli, Tb] : bolt::Zip(_.gait.T_tip(), ql, _.leg_Tb)) {
+        double ratio = _.f_max[i] / f_cap; 
+        // double ratio = 0.0;
         
-        // Use the expected force here
-        bolt::SE3<> T_adj = apply_admittance(Tt, measured_forces[i], _.expected_fz[i], dt, i);
+        double current_stiffness = _.swing_adm_stiffness + ratio * (_.stance_adm_stiffness - _.swing_adm_stiffness);
+        double current_damping   = _.swing_adm_damping + ratio * (_.stance_adm_damping - _.swing_adm_damping);
+        double current_mass      = _.swing_adm_mass + ratio * (_.stance_adm_mass - _.swing_adm_mass);
 
+        bolt::SE3<> T_adj = apply_admittance(current_stiffness, current_damping, current_mass, Tt, measured_forces[i], _.expected_fz[i], dt, i);
+        
         qli = bolt::expect(_.leg_model.IK((Tb.inverse() * T_adj).translation(), qli), "IK failure.");
         i++;
     }
@@ -383,7 +400,61 @@ bolt::Vec<> TwistGait_Positional::next_q(
     return _.q;
 }
 
+std::vector<double> TwistGait_Positional::distribute_weight(
+    const std::vector<double>& f_max,
+    double F_g)
+{
+    const int n = nLegs();
+
+    Eigen::MatrixXd A(3, n);
+    for(int i = 0; i < n; ++i) {
+        bolt::Vec<3> p = _.gait.T_tip()[i].translation();
+        A(0, i) = 1.0;
+        A(1, i) = p.y();
+        A(2, i) = p.x();
+    }
+
+    Eigen::Vector3d B(F_g, 0.0, 0.0);
+    Eigen::Vector3d Q(1.0, _.beta, _.beta);
+
+    Eigen::MatrixXd H = A.transpose() * Q.asDiagonal() * A + _.alpha * Eigen::MatrixXd::Identity(n, n);
+    Eigen::VectorXd g = -A.transpose() * Q.cwiseProduct(B);
+
+    Eigen::MatrixXd C = Eigen::MatrixXd::Identity(n, n);
+    Eigen::VectorXd l = Eigen::VectorXd::Zero(n);
+    Eigen::VectorXd u = Eigen::Map<const Eigen::VectorXd>(f_max.data(), n);
+
+    if(!_.qp) {
+        _.qp.emplace(n, 0, n);
+        _.qp->settings.eps_abs = 1e-6;
+        _.qp->settings.eps_rel = 0.0;
+        _.qp->settings.max_iter = 50;
+        _.qp->settings.initial_guess = proxsuite::proxqp::InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT;
+        _.qp->init(H, g, proxsuite::nullopt, proxsuite::nullopt, C, l, u);
+    } else {
+        _.qp->update(H, g, proxsuite::nullopt, proxsuite::nullopt, C, l, u, true);
+    }
+    _.qp->solve();
+
+    std::vector<double> f(n, 0.0);
+    if(_.qp->results.info.status == proxsuite::proxqp::QPSolverOutput::PROXQP_SOLVED) {
+        for(int i = 0; i < n; ++i) {
+            f[i] = std::clamp(_.qp->results.x(i), 0.0, f_max[i]);
+        }
+    } else {
+        // Fallback
+        int k = 0;
+        for(int i = 0; i < n; ++i) if(f_max[i] > 0.0) ++k;
+        for(int i = 0; i < n; ++i) if(f_max[i] > 0.0) f[i] = std::min(F_g / k, f_max[i]);
+        std::cerr << "Weight QP not solved, using uniform fallback." << std::endl;
+    }
+    return f;
+}
+
 bolt::SE3<> TwistGait_Positional::apply_admittance(
+    const double adm_stiffness,
+    const double adm_damping,
+    const double adm_mass,
     const bolt::SE3<>& T_target, 
     bolt::VecCRef<3> measured_force,
     double expected_fz, 
@@ -391,18 +462,54 @@ bolt::SE3<> TwistGait_Positional::apply_admittance(
     int i)                    
 {
     
+    // Divide by zero check
+    if (adm_mass <= 1e-6) {
+        return T_target;
+    }
+
     // Isolate dynamic force
     double measured_fz = measured_force.z();
     double delta_f_z = _.adm_robot_weight_compensation ? measured_fz - expected_fz : measured_fz;
 
-    // Calculate z-axis acceleration
-    double a_z = (delta_f_z - _.adm_damping * _.adm_vel_z[i] - _.adm_stiffness * _.adm_pos_z[i]) / _.adm_mass;
+    //------------------------------------------------------------------------
 
-    // Integrate acceleration to get velocity and position (Semi-implicit Euler)
-    _.adm_vel_z[i] += a_z * dt;
-    _.adm_pos_z[i] += _.adm_vel_z[i] * dt;
+    // // Semi-implicit Euler integration
+    // // Calculate z-axis acceleration
+    // double a_z = (delta_f_z - adm_damping * _.adm_vel_z[i] - adm_stiffness * _.adm_pos_z[i]) / adm_mass;
 
-    // Apply the calculated admittance displacement to the target transform
+    // // Integrate acceleration to get velocity and position (semi-implicit euler)
+    // _.adm_vel_z[i] += a_z * dt;
+    // _.adm_pos_z[i] += _.adm_vel_z[i] * dt;
+
+    //------------------------------------------------------------------------
+
+    // Runge-Kutta 4th order integration
+    auto calc_accel = [&](double pos, double vel) {
+        return (delta_f_z - adm_damping * vel - adm_stiffness * pos) / adm_mass;
+    };
+
+    double p0 = _.adm_pos_z[i];
+    double v0 = _.adm_vel_z[i];
+
+    double k1_v = calc_accel(p0, v0);
+    double k1_p = v0;
+
+    double k2_v = calc_accel(p0 + 0.5 * dt * k1_p, v0 + 0.5 * dt * k1_v);
+    double k2_p = v0 + 0.5 * dt * k1_v;
+
+    double k3_v = calc_accel(p0 + 0.5 * dt * k2_p, v0 + 0.5 * dt * k2_v);
+    double k3_p = v0 + 0.5 * dt * k2_v;
+
+    double k4_v = calc_accel(p0 + dt * k3_p, v0 + dt * k3_v);
+    double k4_p = v0 + dt * k3_v;
+
+    // Integrate acceleration to get velocity and position (RK4)
+    _.adm_vel_z[i] += (dt / 6.0) * (k1_v + 2.0 * k2_v + 2.0 * k3_v + k4_v);
+    _.adm_pos_z[i] += (dt / 6.0) * (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p);
+
+    //------------------------------------------------------------------------
+
+    // Apply the calculated admittance adjustment to the target transform
     bolt::SE3<> T_adj = T_target;
     if (_.adm_enable) {
         T_adj.translation().z() += _.adm_pos_z[i];
@@ -413,10 +520,8 @@ bolt::SE3<> TwistGait_Positional::apply_admittance(
     return T_adj;
 }
 
-// Helper functions -----------------------------------------------------------
-
 // Calculate tip force from joint torques
-bolt::Vec<3> TwistGait_Positional::compute_measured_force(int i, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb) {
+bolt::Vec<3> TwistGait_Positional::compute_measured_force(int i, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb, bolt::VecCRef<> q) {
     // Deadband to compensate for friction loss
     bolt::Vec<> tau_active = tau_ext_leg.unaryExpr([](double tau) {
         const double friction_loss = 0.03;
@@ -426,7 +531,7 @@ bolt::Vec<3> TwistGait_Positional::compute_measured_force(int i, bolt::VecCRef<>
     });
 
     int dof_per_leg = _.leg_model.nDof();
-    bolt::Vec<> q_leg = _.q.segment(i * dof_per_leg, dof_per_leg);
+    bolt::Vec<> q_leg = q.segment(i * dof_per_leg, dof_per_leg);
 
     // Compute the Jacobian and the tip transform
     bolt::SE3<double> T = _.leg_model.FK(q_leg);

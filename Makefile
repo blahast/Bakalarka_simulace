@@ -1,6 +1,6 @@
 # Default target
 all:
-	cmake --build build -j$$(nproc)
+	cmake --build build -j4
 
 # Configure the project
 configure:

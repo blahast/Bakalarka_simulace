@@ -18,18 +18,24 @@ gait:
 
 admittance:
   enable: true
-  virtual_stiffness: 200.0
-  virtual_damping_ratio: 1.0
-  virtual_mass: 3
+  stance_virtual_stiffness: 100.0
+  stance_virtual_damping_ratio: 1.0
+  stance_virtual_mass: 3
+
+  swing_virtual_stiffness: 300.0
+  swing_virtual_damping_ratio: 1.0
+  swing_virtual_mass: 3
+
+  force_ema: 0.5 
 
   robot_weight_compensation: true
   robot_mass: 4.786
-  expected_force_multiplier: 0.95
+  expected_force_multiplier: 0.96
+  alpha: 1e-4
+  beta: 0.9
+  weight_ramp_time: 0.1
 
-  search_for_ground: true
   force_touchdown_threshold: 5.0
-  pre_contact_force_limit: 30.0
-  pre_contact_force_rate: 100.0
 
 legs:
   - name: "0-0"

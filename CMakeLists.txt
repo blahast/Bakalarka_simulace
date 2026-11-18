@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(Hexapo-MuJoCo)
 set(CMAKE_CXX_STANDARD 17)  # Required by MuJoCo 3.2.7
+add_compile_options(-Wno-dangling-reference)
 
 # Allow seamselss linking in a Conda environment
 if(DEFINED ENV{CONDA_PREFIX})
@@ -24,5 +25,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(bolt)
 
+# Download ProxSuite
+FetchContent_Declare(
+    proxsuite
+    GIT_REPOSITORY https://github.com/Simple-Robotics/proxsuite.git
+    GIT_TAG        v0.8.2
+)
+FetchContent_MakeAvailable(proxsuite)
 
 add_subdirectory(src)

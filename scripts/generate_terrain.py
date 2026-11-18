@@ -6,7 +6,7 @@ import os
 grid_size = 30
 box_half_size = 0.1
 min_box_height = 0.01
-max_box_height = 0.05
+max_box_height = 0.04
 
 grid_elements = ""
 offset = (grid_size - 1) * box_half_size

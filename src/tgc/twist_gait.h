@@ -5,7 +5,10 @@
  * @author David Valouch (valouch.david@fel.cvut.cz)
  * @date 2025-09-05
  * 
- * @copyright Copyright (c) 2025
+ * @author Štěpán Blaha (blahast2@cvut.cz) - úpravy a rozšíření
+ * @date 2026-11-17
+ * 
+ * @copyright Copyright (c) 2025-2026
  */
 
 #pragma once
@@ -36,14 +39,13 @@ class TwistGait {
         double                   h_swing;   
         double                   r_ws;
         std::vector<bolt::SE3<>> T0;
+        bool                     use_admittance;
 
         double duty_factor;
 
         std::vector<bolt::SE3<>>          T_tip;
         std::vector<bolt::Vec<6>>         V_tip;
         std::vector<bolt::Option<double>> phi;
-
-        bool search_for_ground;
 
         // bool is_V_updated = false;
     } _self;
@@ -67,7 +69,7 @@ public:
         double h_swing,
         double r_ws,
         const std::vector<bolt::SE3<>>& T0,
-        bool search_for_ground
+        bool use_admittance
     );
 
     inline size_t nLegs() const { return _self.T0.size(); }
