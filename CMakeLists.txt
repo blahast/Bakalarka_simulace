@@ -33,4 +33,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(proxsuite)
 
+# Find Pinocchio
+find_package(pinocchio REQUIRED)
+
 add_subdirectory(src)

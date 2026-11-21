@@ -25,6 +25,8 @@ for i in range(grid_size):
 
 xml_content = f"""<mujoco model="generated_scene">
   <compiler texturedir="assets/textures"/>
+
+  <include file="hexapod.xml"/>
   
   <asset>
     <material name="mat_light" rgba=".9 .9 .9 1" reflectance=".2"/>

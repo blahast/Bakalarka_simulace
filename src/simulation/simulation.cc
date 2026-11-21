@@ -136,6 +136,41 @@ bolt::Vec<> Simulation::joint_ext_eff() const
     return ext_effort;
 }
 
+// Returns base roll, pitch, yaw from IMU framequat sensor
+bolt::Vec<3> Simulation::base_rpy() const
+{
+    auto& model = *self.mj_model;
+    auto& data = *self.mj_data;
+
+    int id = mj_name2id(&model, mjOBJ_SENSOR, "base_quat");
+    if (id < 0) bolt::panic("Sensor 'base_quat' not found.");
+    int adr = model.sensor_adr[id];
+
+    const double w = data.sensordata[adr + 0];
+    const double x = data.sensordata[adr + 1];
+    const double y = data.sensordata[adr + 2];
+    const double z = data.sensordata[adr + 3];
+
+    const double roll  = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
+    const double pitch = std::asin(std::clamp(2.0 * (w * y - z * x), -1.0, 1.0));
+    const double yaw   = std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
+
+    return bolt::Vec<3>(roll, pitch, yaw);
+}
+
+// Returns base angular velocity in body frame from IMU gyro sensor
+bolt::Vec<3> Simulation::base_ang_vel() const
+{
+    auto& model = *self.mj_model;
+    auto& data = *self.mj_data;
+
+    int id = mj_name2id(&model, mjOBJ_SENSOR, "base_gyro");
+    if (id < 0) bolt::panic("Sensor 'base_gyro' not found.");
+    int adr = model.sensor_adr[id];
+
+    return bolt::Vec<3>(data.sensordata[adr + 0], data.sensordata[adr + 1], data.sensordata[adr + 2]);
+}
+
 void
 Simulation::
 cmd_pos(Eigen::Ref<const bolt::Vec<>> q) const

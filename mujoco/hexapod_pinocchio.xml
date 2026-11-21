@@ -1,0 +1,182 @@
+<mujoco model="hexapod">
+  <compiler angle="radian" />
+
+  <default>
+    <joint solimplimit="0 0.99 0.01" armature="0.045" damping="1.084" frictionloss="0.03" />
+    <general forcerange="-4.1 4.1" input="pos" biastype="affine" gainprm="150" biasprm="0 -150" />
+    <default class="link">
+      <geom size="0.02 0 0" density="200" material="blue" />
+    </default>
+    <default class="servo">
+      <geom size="0.03 0.03 0" contype="0" conaffinity="0" material="purple" />
+    </default>
+  </default>
+
+  <asset>
+    <material name="blue" rgba="0.122 0.467 0.706 1" />
+    <material name="orange" rgba="1 0.498 0.055 1" />
+    <material name="green" rgba="0.173 0.627 0.173 1" />
+    <material name="black" rgba="0.2 0.2 0.2 1" />
+    <material name="purple" rgba="0.459 0.42 0.694 1" />
+  </asset>
+
+  <worldbody>
+    <body name="base" pos="0 0 0.31" quat="1 0 0 0">
+      <joint name="root" type="free" solimplimit="0.9 0.95 0.001" armature="0" damping="0" frictionloss="0" />
+      <geom size="0.15 0.1 0.02" type="box" mass="2.6" material="green" pos="0 0 0" quat="1 0 0 0" />
+      <geom size="0.03" pos="0.15 0 0.02" mass="0" material="green" quat="1 0 0 0" />
+      <site name="base_accel" pos="0 0 0" quat="1 0 0 0" />
+      <geom class="servo" type="cylinder" mass="0.082" pos="0.15 0.1 0" quat="1 0 0 0" />
+        <body name="coxa_0-0" quat="0.88701071 0 0 0.46174885" pos="0.15 0.1 0">
+          <joint name="coxa_0-0" />
+          <geom class="link" size="0.02 0.035" pos="0.035 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+          <geom class="servo" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0" type="cylinder" mass="0.082" />
+          <body name="femur_0-0" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0">
+            <joint name="femur_0-0" />
+            <geom class="link" size="0.02 0.075" pos="0.075 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+            <geom class="servo" pos="0.15 0 0" type="cylinder" mass="0.082" quat="1 0 0 0" />
+            <body name="tibia_0-0" pos="0.15 0 0" quat="0.70710678 0 0 -0.70710678">
+              <joint name="tibia_0-0" ref="-1.5708" />
+              <geom class="link" size="0.02 0.09" pos="0.09 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+            </body>
+          </body>
+        </body>
+        <geom class="servo" type="cylinder" mass="0.082" pos="0 0.1 0" quat="0.9537169 0 0 0.30070597" />
+          <body name="coxa_1-0" quat="0.70710647 0 0 0.70710709" pos="0 0.1 0">
+            <joint name="coxa_1-0" />
+            <geom class="link" size="0.02 0.035" pos="0.035 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+            <geom class="servo" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0" type="cylinder" mass="0.082" />
+            <body name="femur_1-0" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0">
+              <joint name="femur_1-0" />
+              <geom class="link" size="0.02 0.075" pos="0.075 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              <geom class="servo" pos="0.15 0 0" type="cylinder" mass="0.082" quat="1 0 0 0" />
+              <body name="tibia_1-0" pos="0.15 0 0" quat="0.70710678 0 0 -0.70710678">
+                <joint name="tibia_1-0" ref="-1.5708" />
+                <geom class="link" size="0.02 0.09" pos="0.09 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              </body>
+            </body>
+          </body>
+        <geom class="servo" type="cylinder" mass="0.082" pos="-0.122873 0.0139635 0" quat="0.81915223 0 0 0.57357616" />
+          <body name="coxa_2-0" quat="0.46174867 0 0 0.8870108" pos="-0.122873 0.0139635 0">
+            <joint name="coxa_2-0" />
+            <geom class="link" size="0.02 0.035" pos="0.035 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+            <geom class="servo" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0" type="cylinder" mass="0.082" />
+            <body name="femur_2-0" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0">
+              <joint name="femur_2-0" />
+              <geom class="link" size="0.02 0.075" pos="0.075 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              <geom class="servo" pos="0.15 0 0" type="cylinder" mass="0.082" quat="1 0 0 0" />
+              <body name="tibia_2-0" pos="0.15 0 0" quat="0.70710678 0 0 -0.70710678">
+                <joint name="tibia_2-0" ref="-1.5708" />
+                <geom class="link" size="0.02 0.09" pos="0.09 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              </body>
+            </body>
+          </body>
+        <geom class="servo" type="cylinder" mass="0.082" pos="-0.15 -0.1 0" quat="0 0 0 1" />
+          <body name="coxa_0-1" quat="-0.46174885 0 0 0.88701071" pos="-0.15 -0.1 0">
+            <joint name="coxa_0-1" />
+            <geom class="link" size="0.02 0.035" pos="0.035 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+            <geom class="servo" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0" type="cylinder" mass="0.082" />
+            <body name="femur_0-1" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0">
+              <joint name="femur_0-1" />
+              <geom class="link" size="0.02 0.075" pos="0.075 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              <geom class="servo" pos="0.15 0 0" type="cylinder" mass="0.082" quat="1 0 0 0" />
+              <body name="tibia_0-1" pos="0.15 0 0" quat="0.70710678 0 0 -0.70710678">
+                <joint name="tibia_0-1" ref="-1.5708" />
+                <geom class="link" size="0.02 0.09" pos="0.09 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              </body>
+            </body>
+          </body>
+          <geom class="servo" type="cylinder" mass="0.082" pos="0 -0.1 0" quat="-0.30070597 0 0 0.9537169" />
+            <body name="coxa_1-1" quat="-0.70710709 0 0 0.70710647" pos="0 -0.1 0">
+              <joint name="coxa_1-1" />
+              <geom class="link" size="0.02 0.035" pos="0.035 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              <geom class="servo" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0" type="cylinder" mass="0.082" />
+              <body name="femur_1-1" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0">
+                <joint name="femur_1-1" />
+                <geom class="link" size="0.02 0.075" pos="0.075 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+                <geom class="servo" pos="0.15 0 0" type="cylinder" mass="0.082" quat="1 0 0 0" />
+                <body name="tibia_1-1" pos="0.15 0 0" quat="0.70710678 0 0 -0.70710678">
+                  <joint name="tibia_1-1" ref="-1.5708" />
+                  <geom class="link" size="0.02 0.09" pos="0.09 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+                </body>
+              </body>
+            </body>
+          <geom class="servo" type="cylinder" mass="0.082" pos="0.122873 -0.0139635 0" quat="-0.57357616 0 0 0.81915223" />
+            <body name="coxa_2-1" quat="-0.8870108 0 0 0.46174867" pos="0.122873 -0.0139635 0">
+              <joint name="coxa_2-1" />
+              <geom class="link" size="0.02 0.035" pos="0.035 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+              <geom class="servo" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0" type="cylinder" mass="0.082" />
+              <body name="femur_2-1" pos="0.07 0 0" quat="0.70710678 0.70710678 0 0">
+                <joint name="femur_2-1" />
+                <geom class="link" size="0.02 0.075" pos="0.075 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+                <geom class="servo" pos="0.15 0 0" type="cylinder" mass="0.082" quat="1 0 0 0" />
+                <body name="tibia_2-1" pos="0.15 0 0" quat="0.70710678 0 0 -0.70710678">
+                  <joint name="tibia_2-1" ref="-1.5708" />
+                  <geom class="link" size="0.02 0.09" pos="0.09 0 0" quat="0.70710678 0 -0.70710678 0" type="capsule" />
+                </body>
+              </body>
+            </body>
+          </body>
+  </worldbody>
+
+  <actuator>
+    <general name="coxa_act_0-0" joint="coxa_0-0" ctrlrange="-2 2" />
+    <general name="femur_act_0-0" joint="femur_0-0" ctrlrange="-2 2" />
+    <general name="tibia_act_0-0" joint="tibia_0-0" ctrlrange="-2 2" />
+    <general name="coxa_act_1-0" joint="coxa_1-0" ctrlrange="-2 2" />
+    <general name="femur_act_1-0" joint="femur_1-0" ctrlrange="-2 2" />
+    <general name="tibia_act_1-0" joint="tibia_1-0" ctrlrange="-2 2" />
+    <general name="coxa_act_2-0" joint="coxa_2-0" ctrlrange="-2 2" />
+    <general name="femur_act_2-0" joint="femur_2-0" ctrlrange="-2 2" />
+    <general name="tibia_act_2-0" joint="tibia_2-0" ctrlrange="-2 2" />
+    <general name="coxa_act_0-1" joint="coxa_0-1" ctrlrange="-2 2" />
+    <general name="femur_act_0-1" joint="femur_0-1" ctrlrange="-2 2" />
+    <general name="tibia_act_0-1" joint="tibia_0-1" ctrlrange="-2 2" />
+    <general name="coxa_act_1-1" joint="coxa_1-1" ctrlrange="-2 2" />
+    <general name="femur_act_1-1" joint="femur_1-1" ctrlrange="-2 2" />
+    <general name="tibia_act_1-1" joint="tibia_1-1" ctrlrange="-2 2" />
+    <general name="coxa_act_2-1" joint="coxa_2-1" ctrlrange="-2 2" />
+    <general name="femur_act_2-1" joint="femur_2-1" ctrlrange="-2 2" />
+    <general name="tibia_act_2-1" joint="tibia_2-1" ctrlrange="-2 2" />
+  </actuator>
+
+  <sensor>
+    <accelerometer site="base_accel" />
+    <jointpos joint="coxa_0-0" />
+    <jointpos joint="femur_0-0" />
+    <jointpos joint="tibia_0-0" />
+    <jointvel joint="coxa_0-0" />
+    <jointvel joint="femur_0-0" />
+    <jointvel joint="tibia_0-0" />
+    <jointpos joint="coxa_1-0" />
+    <jointpos joint="femur_1-0" />
+    <jointpos joint="tibia_1-0" />
+    <jointvel joint="coxa_1-0" />
+    <jointvel joint="femur_1-0" />
+    <jointvel joint="tibia_1-0" />
+    <jointpos joint="coxa_2-0" />
+    <jointpos joint="femur_2-0" />
+    <jointpos joint="tibia_2-0" />
+    <jointvel joint="coxa_2-0" />
+    <jointvel joint="femur_2-0" />
+    <jointvel joint="tibia_2-0" />
+    <jointpos joint="coxa_0-1" />
+    <jointpos joint="femur_0-1" />
+    <jointpos joint="tibia_0-1" />
+    <jointvel joint="coxa_0-1" />
+    <jointvel joint="femur_0-1" />
+    <jointvel joint="tibia_0-1" />
+    <jointpos joint="coxa_1-1" />
+    <jointpos joint="femur_1-1" />
+    <jointpos joint="tibia_1-1" />
+    <jointvel joint="coxa_1-1" />
+    <jointvel joint="femur_1-1" />
+    <jointvel joint="tibia_1-1" />
+    <jointpos joint="coxa_2-1" />
+    <jointpos joint="femur_2-1" />
+    <jointpos joint="tibia_2-1" />
+    <jointvel joint="coxa_2-1" />
+    <jointvel joint="femur_2-1" />
+    <jointvel joint="tibia_2-1" />
+  </sensor>
+</mujoco>

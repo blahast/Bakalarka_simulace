@@ -9,6 +9,7 @@ target_link_libraries(tgc PUBLIC
     bolt_kinematics
     yaml-cpp
     proxsuite::proxsuite
+    pinocchio::pinocchio
 )
 
 target_include_directories(tgc PUBLIC "${PROJECT_SOURCE_DIR}/src")

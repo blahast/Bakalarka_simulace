@@ -18,24 +18,26 @@ gait:
 
 admittance:
   enable: true
-  stance_virtual_stiffness: 100.0
+  stance_virtual_stiffness: 200.0
   stance_virtual_damping_ratio: 1.0
   stance_virtual_mass: 3
 
-  swing_virtual_stiffness: 300.0
+  swing_virtual_stiffness: 200.0
   swing_virtual_damping_ratio: 1.0
   swing_virtual_mass: 3
 
   force_ema: 0.5 
 
   robot_weight_compensation: true
-  robot_mass: 4.786
-  expected_force_multiplier: 0.96
+  robot_mass: 4.8
+  expected_force_multiplier: 0.98
   alpha: 1e-4
   beta: 0.9
   weight_ramp_time: 0.1
 
   force_touchdown_threshold: 5.0
+
+  robot_xml: "mujoco/hexapod_pinocchio.xml"
 
 legs:
   - name: "0-0"

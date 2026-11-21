@@ -23,11 +23,13 @@
 #include "yaml-cpp/yaml.h"
 
 #include <utility>
-#include <string>
 #include <vector>
 
 #include <optional>
 #include <proxsuite/proxqp/dense/dense.hpp>
+
+#include <pinocchio/multibody/model.hpp>
+#include <pinocchio/multibody/data.hpp>
 
 namespace tgc {
 
@@ -79,6 +81,13 @@ class TwistGait_Positional {
 
         // Ground
         double                        adm_force_touchdown_threshold;    // Force threshold for touchdown detection
+
+        // Pinocchio dynamics model
+        pinocchio::Model              pin_model;                        // Pinocchio rigid body model
+        pinocchio::Data               pin_data;                         // Pinocchio pre-allocated data
+        std::vector<int>              q_to_pin_idx;                     // Mapping from controller q to Pinocchio q
+        Eigen::VectorXd               q_pin;                            // Pre-allocated Pinocchio configuration vector
+        bool                          pin_initialized;                  // True if Pinocchio model was loaded
 
         std::optional<proxsuite::proxqp::dense::QP<double>> qp;         // QP solver
 
@@ -153,7 +162,7 @@ private:
     bolt::Vec<3> compute_measured_force(int i, bolt::VecCRef<> tau_ext_leg, const bolt::SE3<>& Tb, bolt::VecCRef<> q);
 
     // Compute wight distribution using QP solver
-    std::vector<double> distribute_weight(const std::vector<double>& f_max, double F_g);
+    std::vector<double> distribute_weight(const std::vector<double>& f_max, double F_g, const Eigen::Vector3d& com, bolt::VecCRef<> q);
 };
 
 } // namespace tgc

@@ -1,6 +1,4 @@
 <mujoco model="hexapod">
-  <include file="scene-outrun_rough.xml" />
-
   <compiler autolimits="true"/>
 
   <!-- <option gravity="0 0 0"/> -->
@@ -10,7 +8,7 @@
     <joint damping="1.084" armature="0.045" frictionloss="0.03" solimplimit="0 .99 .01"/>
 
     <default class="link">
-      <geom size="2e-2" material="blue" density="500" />
+      <geom size="2e-2" material="blue" density="200" />
     </default>
     
     <default class="servo">
@@ -30,7 +28,7 @@
     <body name="base" pos="0 0 31e-2">
       <site name="base_accel" />
       <freejoint name="root" />
-      <geom type="box" size="15e-2 10e-2 2e-2" material="green" mass="1.5" />
+      <geom type="box" size="15e-2 10e-2 2e-2" material="green" mass="2.6" />
       <geom type="sphere" size="3e-2" pos="15e-2 0 2e-2" material="green" mass="0.0" />
 
       <!-- Legs -->
@@ -72,7 +70,8 @@
   </actuator>
 
   <sensor>
-    <accelerometer site="base_accel" />
+    <framequat name="base_quat" objtype="site" objname="base_accel" />
+    <gyro name="base_gyro" site="base_accel" />
     <jointpos joint="coxa" />
     <jointpos joint="femur" />
     <jointpos joint="tibia" />

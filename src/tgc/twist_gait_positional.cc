@@ -13,6 +13,8 @@
 #include "bolt/base/iterator.h"
 
 #include <proxsuite/proxqp/dense/dense.hpp>
+#include <pinocchio/parsers/mjcf.hpp>
+#include <pinocchio/algorithm/center-of-mass.hpp>
 #include <algorithm>
 
 #include <cmath>
@@ -148,6 +150,9 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
         // Ground search
         double adm_force_touchdown_threshold = 0.0;
 
+        // Pinocchio model
+        std::string robot_xml = "";
+
         auto admittance_yml = yml_data["admittance"];
         if(admittance_yml.IsDefined()) {
 
@@ -173,6 +178,36 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
             weight_ramp_time = admittance_yml["weight_ramp_time"].IsDefined() ? admittance_yml["weight_ramp_time"].as<double>() : weight_ramp_time;
 
             adm_force_touchdown_threshold = admittance_yml["force_touchdown_threshold"].IsDefined() ? admittance_yml["force_touchdown_threshold"].as<double>() : adm_force_touchdown_threshold;
+
+            robot_xml = admittance_yml["robot_xml"].IsDefined() ? admittance_yml["robot_xml"].as<std::string>() : robot_xml;
+        }
+
+        // Initialize Pinocchio model
+        pinocchio::Model pin_model;
+        pinocchio::Data pin_data;
+        std::vector<int> q_to_pin_idx;
+        Eigen::VectorXd q_pin;
+        bool pin_initialized = false;
+
+        if (!robot_xml.empty()) {
+            pinocchio::mjcf::buildModel(robot_xml, pin_model);
+            pin_data = pinocchio::Data(pin_model);
+            q_pin = pinocchio::neutral(pin_model);
+
+            // Build joint name mapping
+            for (const auto& ln : leg_names) {
+                for (const auto& jn : leg_joint_names) {
+                    std::string full_name = jn + "_" + ln;
+                    if (pin_model.existJointName(full_name)) {
+                        pinocchio::JointIndex jid = pin_model.getJointId(full_name);
+                        q_to_pin_idx.push_back(pin_model.joints[jid].idx_q());
+                    } else {
+                        q_to_pin_idx.push_back(-1);
+                        std::cerr << "Warning: Joint '" << full_name << "' not found in Pinocchio model." << std::endl;
+                    }
+                }
+            }
+            pin_initialized = true;
         }
 
         // Gait correlations
@@ -232,7 +267,12 @@ bolt::Option<TwistGait_Positional> TwistGait_Positional::make(const YAML::Node& 
             alpha,
             beta,
             weight_ramp_time,
-            adm_force_touchdown_threshold
+            adm_force_touchdown_threshold,
+            pin_model,
+            pin_data,
+            q_to_pin_idx,
+            q_pin,
+            pin_initialized
         ));
     } catch(YAML::Exception e) {
         std::cerr << e.what() << std::endl;
@@ -317,7 +357,7 @@ bolt::Vec<> TwistGait_Positional::next_q(
         bolt::Vec<3> raw_force = compute_measured_force(i, tau_i, _.leg_Tb[i], q);
         measured_forces[i] = raw_force;
         
-        // Asymetrický filtr pro osu Z
+        // Asymetrical low pass filter for measured forces
         const double alpha_rise = _.force_ema;
         const double alpha_fall = 1.0;
         
@@ -336,9 +376,14 @@ bolt::Vec<> TwistGait_Positional::next_q(
             }
         } else {
             // Swing
-            _.is_in_contact[i] = false;
+            auto phase_opt = _.gait.phase(i);
 
-            // auto phase_opt = _.gait.phase(i);
+            if (phase_opt.is_none() || phase_opt.get() <= 0.5) {
+                _.is_in_contact[i] = false;
+            } else if (!_.is_in_contact[i] && measured_forces[i].z() > _.adm_force_touchdown_threshold) {
+                _.is_in_contact[i] = true;
+            }
+
             // if (!phase_opt.is_none() && phase_opt.get() < 0.5) {
             //     // Decay admittance states when in swing
             //     _.adm_pos_z[i] *= 0.95;
@@ -351,7 +396,7 @@ bolt::Vec<> TwistGait_Positional::next_q(
     const double rate  = (_.weight_ramp_time > 0.0) ? f_cap / _.weight_ramp_time : 1e9;
 
     for(int i = 0; i < nLegs(); ++i) {
-        const double target = _.gait.is_stance(i) ? f_cap : 0.0;
+        const double target = (_.gait.is_stance(i) || _.is_in_contact[i]) ? f_cap : 0.0;
 
         // Ramp f_max towards target
         if (target < _.f_max[i]) {
@@ -362,11 +407,22 @@ bolt::Vec<> TwistGait_Positional::next_q(
         }
     }
 
+    // Compute CoM in robot base frame using Pinocchio
+    Eigen::Vector3d com = Eigen::Vector3d::Zero();
+    if (_.pin_initialized) {
+        for (int i = 0; i < q.size(); ++i) {
+            if (_.q_to_pin_idx[i] >= 0) {
+                _.q_pin[_.q_to_pin_idx[i]] = q[i];
+            }
+        }
+        com = pinocchio::centerOfMass(_.pin_model, _.pin_data, _.q_pin);
+    }
+
     // Weight distribution using QP solver
     bool any_cap = std::any_of(_.f_max.begin(), _.f_max.end(), [](double f){ return f > 0.0; });
     _.f_qp.assign(nLegs(), 0.0);
     if (any_cap) {
-        _.f_qp = distribute_weight(_.f_max, F_g);
+        _.f_qp = distribute_weight(_.f_max, F_g, com, q);
     }
 
     // Expected forces for based on stance and weight distribution
@@ -383,8 +439,7 @@ bolt::Vec<> TwistGait_Positional::next_q(
     // Apply admittance control with compensated static force
     int i = 0;
     for(auto[Tt, qli, Tb] : bolt::Zip(_.gait.T_tip(), ql, _.leg_Tb)) {
-        double ratio = _.f_max[i] / f_cap; 
-        // double ratio = 0.0;
+        double ratio = (f_cap > 1e-6) ? (_.f_max[i] / f_cap) : 0.0;
         
         double current_stiffness = _.swing_adm_stiffness + ratio * (_.stance_adm_stiffness - _.swing_adm_stiffness);
         double current_damping   = _.swing_adm_damping + ratio * (_.stance_adm_damping - _.swing_adm_damping);
@@ -402,19 +457,23 @@ bolt::Vec<> TwistGait_Positional::next_q(
 
 std::vector<double> TwistGait_Positional::distribute_weight(
     const std::vector<double>& f_max,
-    double F_g)
+    double F_g,
+    const Eigen::Vector3d& com,
+    bolt::VecCRef<> q)
 {
     const int n = nLegs();
+    const int dof_per_leg = _.leg_model.nDof();
 
     Eigen::MatrixXd A(3, n);
     for(int i = 0; i < n; ++i) {
-        bolt::Vec<3> p = _.gait.T_tip()[i].translation();
+        bolt::Vec<> q_leg = q.segment(i * dof_per_leg, dof_per_leg);
+        bolt::Vec<3> p = (_.leg_Tb[i] * _.leg_model.FK(q_leg)).translation();
         A(0, i) = 1.0;
         A(1, i) = p.y();
         A(2, i) = p.x();
     }
 
-    Eigen::Vector3d B(F_g, 0.0, 0.0);
+    Eigen::Vector3d B(F_g, F_g * com.y(), F_g * com.x());
     Eigen::Vector3d Q(1.0, _.beta, _.beta);
 
     Eigen::MatrixXd H = A.transpose() * Q.asDiagonal() * A + _.alpha * Eigen::MatrixXd::Identity(n, n);
@@ -424,17 +483,38 @@ std::vector<double> TwistGait_Positional::distribute_weight(
     Eigen::VectorXd l = Eigen::VectorXd::Zero(n);
     Eigen::VectorXd u = Eigen::Map<const Eigen::VectorXd>(f_max.data(), n);
 
+    // if(!_.qp) {
+    //     _.qp.emplace(n, 0, n);
+    //     _.qp->settings.eps_abs = 1e-6;
+    //     _.qp->settings.eps_rel = 0.0;
+    //     _.qp->settings.max_iter = 50;
+    //     _.qp->settings.initial_guess = proxsuite::proxqp::InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT;
+    //     _.qp->init(H, g, proxsuite::nullopt, proxsuite::nullopt, C, l, u);
+    // } else {
+    //     _.qp->update(H, g, proxsuite::nullopt, proxsuite::nullopt, C, l, u, true);
+    // }
+    // _.qp->solve();
+
+    // _.qp.emplace(n, 0, n);
+    // _.qp->settings.eps_abs = 1e-6;
+    // _.qp->settings.eps_rel = 0.0;
+    // _.qp->settings.max_iter = 50;
+    // _.qp->init(H, g, proxsuite::nullopt, proxsuite::nullopt, C, l, u);
+    // _.qp->solve();
+
     if(!_.qp) {
         _.qp.emplace(n, 0, n);
         _.qp->settings.eps_abs = 1e-6;
         _.qp->settings.eps_rel = 0.0;
         _.qp->settings.max_iter = 50;
-        _.qp->settings.initial_guess = proxsuite::proxqp::InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT;
+        _.qp->settings.initial_guess = proxsuite::proxqp::InitialGuessStatus::WARM_START;
         _.qp->init(H, g, proxsuite::nullopt, proxsuite::nullopt, C, l, u);
+        _.qp->solve();
     } else {
-        _.qp->update(H, g, proxsuite::nullopt, proxsuite::nullopt, C, l, u, true);
+        Eigen::VectorXd x_prev = _.qp->results.x;
+        _.qp->update(H, g, proxsuite::nullopt, proxsuite::nullopt, proxsuite::nullopt, proxsuite::nullopt, u, false);
+        _.qp->solve(x_prev, proxsuite::nullopt, proxsuite::nullopt);
     }
-    _.qp->solve();
 
     std::vector<double> f(n, 0.0);
     if(_.qp->results.info.status == proxsuite::proxqp::QPSolverOutput::PROXQP_SOLVED) {
@@ -461,9 +541,9 @@ bolt::SE3<> TwistGait_Positional::apply_admittance(
     double dt, 
     int i)                    
 {
-    
-    // Divide by zero check
-    if (adm_mass <= 1e-6) {
+
+    // Divide by zero and enable check
+    if (adm_mass <= 1e-6 || !_.adm_enable) {
         return T_target;
     }
 
@@ -473,49 +553,45 @@ bolt::SE3<> TwistGait_Positional::apply_admittance(
 
     //------------------------------------------------------------------------
 
-    // // Semi-implicit Euler integration
-    // // Calculate z-axis acceleration
-    // double a_z = (delta_f_z - adm_damping * _.adm_vel_z[i] - adm_stiffness * _.adm_pos_z[i]) / adm_mass;
+    // Semi-implicit Euler integration
+    // Calculate z-axis acceleration
+    double a_z = (delta_f_z - adm_damping * _.adm_vel_z[i] - adm_stiffness * _.adm_pos_z[i]) / adm_mass;
 
-    // // Integrate acceleration to get velocity and position (semi-implicit euler)
-    // _.adm_vel_z[i] += a_z * dt;
-    // _.adm_pos_z[i] += _.adm_vel_z[i] * dt;
+    // Integrate acceleration to get velocity and position (semi-implicit euler)
+    _.adm_vel_z[i] += a_z * dt;
+    _.adm_pos_z[i] += _.adm_vel_z[i] * dt;
 
     //------------------------------------------------------------------------
 
-    // Runge-Kutta 4th order integration
-    auto calc_accel = [&](double pos, double vel) {
-        return (delta_f_z - adm_damping * vel - adm_stiffness * pos) / adm_mass;
-    };
+    // // Runge-Kutta 4th order integration
+    // auto calc_accel = [&](double pos, double vel) {
+    //     return (delta_f_z - adm_damping * vel - adm_stiffness * pos) / adm_mass;
+    // };
 
-    double p0 = _.adm_pos_z[i];
-    double v0 = _.adm_vel_z[i];
+    // double p0 = _.adm_pos_z[i];
+    // double v0 = _.adm_vel_z[i];
 
-    double k1_v = calc_accel(p0, v0);
-    double k1_p = v0;
+    // double k1_v = calc_accel(p0, v0);
+    // double k1_p = v0;
 
-    double k2_v = calc_accel(p0 + 0.5 * dt * k1_p, v0 + 0.5 * dt * k1_v);
-    double k2_p = v0 + 0.5 * dt * k1_v;
+    // double k2_v = calc_accel(p0 + 0.5 * dt * k1_p, v0 + 0.5 * dt * k1_v);
+    // double k2_p = v0 + 0.5 * dt * k1_v;
 
-    double k3_v = calc_accel(p0 + 0.5 * dt * k2_p, v0 + 0.5 * dt * k2_v);
-    double k3_p = v0 + 0.5 * dt * k2_v;
+    // double k3_v = calc_accel(p0 + 0.5 * dt * k2_p, v0 + 0.5 * dt * k2_v);
+    // double k3_p = v0 + 0.5 * dt * k2_v;
 
-    double k4_v = calc_accel(p0 + dt * k3_p, v0 + dt * k3_v);
-    double k4_p = v0 + dt * k3_v;
+    // double k4_v = calc_accel(p0 + dt * k3_p, v0 + dt * k3_v);
+    // double k4_p = v0 + dt * k3_v;
 
-    // Integrate acceleration to get velocity and position (RK4)
-    _.adm_vel_z[i] += (dt / 6.0) * (k1_v + 2.0 * k2_v + 2.0 * k3_v + k4_v);
-    _.adm_pos_z[i] += (dt / 6.0) * (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p);
+    // // Integrate acceleration to get velocity and position (RK4)
+    // _.adm_vel_z[i] += (dt / 6.0) * (k1_v + 2.0 * k2_v + 2.0 * k3_v + k4_v);
+    // _.adm_pos_z[i] += (dt / 6.0) * (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p);
 
     //------------------------------------------------------------------------
 
     // Apply the calculated admittance adjustment to the target transform
     bolt::SE3<> T_adj = T_target;
-    if (_.adm_enable) {
-        T_adj.translation().z() += _.adm_pos_z[i];
-    } else {
-        T_adj.translation().z() = T_target.translation().z();
-    }
+    T_adj.translation().z() += _.adm_pos_z[i];
 
     return T_adj;
 }

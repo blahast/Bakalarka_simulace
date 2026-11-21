@@ -36,6 +36,9 @@ public:
     bolt::Vec<> joint_eff() const;
     bolt::Vec<> joint_ext_eff() const;
 
+    bolt::Vec<3> base_rpy() const;
+    bolt::Vec<3> base_ang_vel() const;
+
     void cmd_pos(Eigen::Ref<const bolt::Vec<>> q) const;
 
 };
